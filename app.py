@@ -17,9 +17,12 @@ def create_app():
     # ── DATABASE ──────────────────────────────────────────────────────────────
     db_url = os.environ.get('DATABASE_URL')
     if not db_url:
-        db_url = 'postgresql://postgres:123456@localhost:5432/nexus_rooming'
+        if os.environ.get('RAILWAY_ENVIRONMENT'):
+            db_url = 'postgresql://postgres:OgzeTFkNlxACnybDyXaCpFvlXXekkAln@postgres.railway.internal:5432/railway'
+        else:
+            db_url = 'postgresql://postgres:123456@localhost:5432/nexus_rooming'
 
-    # Railway fornisce postgres:// ma SQLAlchemy richiede postgresql://
+    # Railway a volte fornisce postgres:// invece di postgresql://
     if db_url.startswith('postgres://'):
         db_url = db_url.replace('postgres://', 'postgresql://', 1)
 
