@@ -1,0 +1,526 @@
+{% extends 'base.html' %}
+{% block title %}Export Dinamico — Nexus Rooming{% endblock %}
+
+{% block content %}
+<!-- Header fisso sopra il layout -->
+<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px">
+    <div>
+        <a href="{{ url_for('rooming.batch_detail', batch_id=batch_id) }}" class="back-link">← Dettaglio Batch</a>
+        <h1 style="font-size:20px;margin:2px 0">Export Dinamico</h1>
+        <p class="page-sub mono" style="font-size:11px">{{ batch_id }}</p>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="text" id="configName" placeholder="Nome configurazione…"
+               style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:200px">
+        <button class="btn-sm" onclick="saveConfig()">💾 Salva</button>
+        {% if saved_configs %}
+        <select id="configSelect" onchange="loadConfig(this.value)"
+                style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+            <option value="">Carica configurazione…</option>
+            {% for name in saved_configs %}
+            <option value="{{ name }}">{{ name }}</option>
+            {% endfor %}
+        </select>
+        {% endif %}
+        <button class="btn-primary" onclick="doExport()" id="exportBtn">⬇ Scarica Excel</button>
+    </div>
+</div>
+
+<div class="custom-layout">
+
+    <!-- ── Pannello sinistro: colonne + filtri ── -->
+    <div class="panel-left">
+
+        <!-- Filtri -->
+        <div class="card" style="margin-bottom:12px">
+            <h2 style="margin-bottom:12px">Filtri</h2>
+
+            <div class="filter-group">
+                <label>Hotel</label>
+                <div class="check-list" id="filterHotels">
+                {% for h in hotels %}
+                    <label class="check-item">
+                        <input type="checkbox" name="hotel" value="{{ h }}" checked onchange="refresh()">
+                        <span>{{ h }}</span>
+                    </label>
+                {% endfor %}
+                </div>
+            </div>
+
+            <div class="filter-group">
+                <label>Stato registrazione</label>
+                <div class="check-list" id="filterStati">
+                {% for s in stati %}
+                    <label class="check-item">
+                        <input type="checkbox" name="stato" value="{{ s }}" checked onchange="refresh()">
+                        <span class="badge-state badge-{{ s | lower }}">{{ s }}</span>
+                    </label>
+                {% endfor %}
+                </div>
+            </div>
+
+            <div class="filter-group">
+                <label>Notti</label>
+                <div class="check-list nights-check">
+                    <label class="check-item"><input type="checkbox" name="notte" value="sat_28" onchange="refresh()"><span>Sab 28/03</span></label>
+                    <label class="check-item"><input type="checkbox" name="notte" value="sun_29" onchange="refresh()"><span>Dom 29/03</span></label>
+                    <label class="check-item"><input type="checkbox" name="notte" value="mon_30" onchange="refresh()"><span>Lun 30/03</span></label>
+                    <label class="check-item"><input type="checkbox" name="notte" value="tue_31" onchange="refresh()"><span>Mar 31/03</span></label>
+                    <label class="check-item"><input type="checkbox" name="notte" value="wed_1"  onchange="refresh()"><span>Mer 01/04</span></label>
+                    <label class="check-item"><input type="checkbox" name="notte" value="thu_2"  onchange="refresh()"><span>Gio 02/04</span></label>
+                    <label class="check-item"><input type="checkbox" name="notte" value="fri_3"  onchange="refresh()"><span>Ven 03/04</span></label>
+                    <label class="check-item"><input type="checkbox" name="notte" value="sat_4"  onchange="refresh()"><span>Sab 04/04</span></label>
+                </div>
+                <p style="font-size:11px;color:var(--text-muted);margin-top:4px">Se selezioni notti filtra chi ha ALMENO una delle notti spuntate</p>
+            </div>
+        </div>
+
+        <!-- Colonne disponibili -->
+        <div class="card">
+            <h2 style="margin-bottom:4px">Colonne disponibili</h2>
+            <p style="font-size:11px;color:var(--text-muted);margin-bottom:10px">Trascina nell'area destra per aggiungere</p>
+            <div class="col-search-wrap">
+                <input type="text" id="colSearch" placeholder="Cerca colonna…" oninput="filterCols(this.value)"
+                       style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:5px;font-size:12px;margin-bottom:8px">
+            </div>
+            <div id="availableCols" class="col-pool">
+                {% for field, label in all_cols %}
+                <div class="col-chip" draggable="true"
+                     data-field="{{ field }}" data-label="{{ label }}"
+                     ondragstart="dragStart(event)">
+                    {{ label }}
+                </div>
+                {% endfor %}
+            </div>
+            <div style="margin-top:8px;display:flex;gap:6px">
+                <button class="btn-sm" onclick="selectAllCols()">Tutte</button>
+                <button class="btn-sm" onclick="clearCols()">Nessuna</button>
+                <button class="btn-sm" onclick="selectDefaultCols()">Default</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Pannello destro: colonne selezionate + anteprima ── -->
+    <div class="panel-right">
+
+        <!-- Colonne selezionate -->
+        <div class="card" style="margin-bottom:12px">
+            <h2 style="margin-bottom:4px">Colonne selezionate <span id="colCount" class="badge" style="font-size:11px">0</span></h2>
+            <p style="font-size:11px;color:var(--text-muted);margin-bottom:10px">Trascina per riordinare · clicca ✕ per rimuovere</p>
+            <div id="selectedCols" class="col-selected-area"
+                 ondragover="allowDrop(event)" ondrop="dropCol(event)">
+                <p class="drop-hint" id="dropHint">Trascina qui le colonne da includere</p>
+            </div>
+        </div>
+
+        <!-- Anteprima -->
+        <div class="card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+                <h2 style="margin:0">Anteprima <span id="previewCount" style="font-size:12px;color:var(--text-muted);font-weight:400"></span></h2>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <label style="font-size:12px;display:flex;align-items:center;gap:4px">
+                        <input type="checkbox" id="includeCxl" checked onchange="refresh()"> Includi CXL
+                    </label>
+                    <button class="btn-sm" onclick="refresh()">↻ Aggiorna</button>
+                </div>
+            </div>
+            <div id="previewWrap" class="preview-wrap">
+                <div class="preview-empty">Seleziona almeno una colonna per vedere l'anteprima</div>
+            </div>
+            <div id="pagination" class="pagination" style="display:none"></div>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Full width override per questa pagina */
+body > .container { max-width:100% !important; padding:12px 16px 0; }
+body > footer { display:none; }
+
+.custom-layout {
+    display:grid;
+    grid-template-columns:280px 1fr;
+    gap:0;
+    align-items:start;
+    height: calc(100vh - 52px);  /* tutta l'altezza meno navbar */
+    margin: 0 -20px;             /* annulla padding container */
+}
+@media(max-width:900px){ .custom-layout{ grid-template-columns:1fr; height:auto; } }
+
+.panel-left {
+    height: calc(100vh - 52px);
+    overflow-y: auto;
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+    padding: 16px;
+}
+.panel-right {
+    height: calc(100vh - 52px);
+    overflow-y: auto;
+    padding: 16px 20px;
+    background: var(--bg);
+}
+
+.filter-group { margin-bottom:14px; }
+.filter-group > label { display:block; font-size:12px; font-weight:600;
+    color:var(--text-muted); text-transform:uppercase; letter-spacing:.4px; margin-bottom:6px; }
+.check-list { display:flex; flex-wrap:wrap; gap:4px; max-height:120px; overflow-y:auto; }
+.check-item { display:flex; align-items:center; gap:4px; font-size:12px;
+    background:var(--bg); border:1px solid var(--border); border-radius:4px;
+    padding:3px 7px; cursor:pointer; }
+.check-item:hover { background:#EFF6FF; border-color:var(--accent); }
+.nights-check .check-item { min-width:80px; }
+
+.col-pool { display:flex; flex-wrap:wrap; gap:5px; max-height:200px; overflow-y:auto; }
+.col-chip {
+    background:var(--bg); border:1px solid var(--border); border-radius:4px;
+    padding:4px 9px; font-size:12px; cursor:grab; user-select:none;
+    transition:all .15s;
+}
+.col-chip:hover { background:#EFF6FF; border-color:var(--accent); color:var(--accent); }
+.col-chip.hidden { display:none; }
+.col-chip.used { opacity:.35; cursor:default; }
+
+.col-selected-area {
+    min-height:60px; display:flex; flex-wrap:wrap; gap:5px; padding:8px;
+    border:2px dashed var(--border); border-radius:6px;
+    transition:border-color .2s, background .2s;
+}
+.col-selected-area.drag-over { border-color:var(--accent); background:#EFF6FF; }
+
+.col-selected-chip {
+    background:var(--primary); color:#fff; border-radius:4px;
+    padding:4px 8px; font-size:12px; cursor:grab; user-select:none;
+    display:flex; align-items:center; gap:6px;
+}
+.col-selected-chip .rm { cursor:pointer; opacity:.7; font-size:11px; }
+.col-selected-chip .rm:hover { opacity:1; }
+.drop-hint { color:var(--text-muted); font-size:12px; margin:auto; }
+
+.preview-wrap { overflow-x:auto; }
+.preview-empty { text-align:center; padding:32px; color:var(--text-muted); font-size:13px; }
+.preview-wrap table { width:100%; border-collapse:collapse; font-size:12px; }
+.preview-wrap th {
+    background:#F8FAFC; font-weight:600; font-size:11px; color:var(--text-muted);
+    text-transform:uppercase; letter-spacing:.4px; padding:8px 10px;
+    border-bottom:2px solid var(--border); white-space:nowrap; position:sticky; top:0;
+}
+.preview-wrap td { padding:7px 10px; border-bottom:1px solid var(--border); white-space:nowrap; }
+.preview-wrap tr.is-cxl td { color:var(--danger); text-decoration:line-through; opacity:.6; }
+.preview-wrap tr:hover td { background:#F8FAFC; }
+
+.pagination { display:flex; gap:6px; justify-content:center; padding-top:12px; flex-wrap:wrap; }
+.pagination button { padding:4px 10px; border:1px solid var(--border); border-radius:4px;
+    background:var(--surface); font-size:12px; cursor:pointer; }
+.pagination button.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+.pagination button:hover:not(.active) { background:var(--bg); }
+</style>
+
+<!-- Modale spouse -->
+<div id="spouseModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:10px;padding:28px 32px;max-width:420px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+        <h3 style="font-size:16px;font-weight:600;color:var(--primary);margin-bottom:10px">Elaborazione Spouse</h3>
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.6">
+            Vuoi elaborare gli spouse?<br>
+            Le righe con <strong>status Spouse = Yes</strong> verranno barrate in grigio
+            e nella colonna <em>Latest Changes</em> apparirà <strong>"Spouse of &lt;nome&gt;"</strong>.
+        </p>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+            <button class="btn-sm" onclick="confirmExport(false)">No, esporta normale</button>
+            <button class="btn-primary" onclick="confirmExport(true)">Sì, elabora spouse</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const BATCH_ID   = {{ batch_id | tojson }};
+const ALL_COLS   = {{ all_cols | tojson }};
+const COL_LABELS = Object.fromEntries(ALL_COLS);
+
+const DEFAULT_COLS = ['title','last_name','first_name','company_name','company_country',
+    'company_category','registration_state','hotel',
+    'night_mon_30mar','night_tue_31mar','night_wed_1apr',
+    'arrival_mode','diet_restrictions','email','phone'];
+
+let selectedCols = [...DEFAULT_COLS];
+let currentPage  = 1;
+let dragSrcField = null;
+let dragSrcEl    = null;
+
+// ── Init ──────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+    renderSelectedCols();
+    refresh();
+});
+
+// ── Colonne disponibili ───────────────────────────────────────────────────
+function filterCols(q) {
+    document.querySelectorAll('#availableCols .col-chip').forEach(el => {
+        el.classList.toggle('hidden',
+            q && !el.dataset.label.toLowerCase().includes(q.toLowerCase()));
+    });
+}
+
+function markUsed() {
+    document.querySelectorAll('#availableCols .col-chip').forEach(el => {
+        el.classList.toggle('used', selectedCols.includes(el.dataset.field));
+    });
+}
+
+// ── Colonne selezionate ───────────────────────────────────────────────────
+function renderSelectedCols() {
+    const area = document.getElementById('selectedCols');
+    const hint = document.getElementById('dropHint');
+    area.innerHTML = '';
+    if (selectedCols.length === 0) {
+        area.appendChild(hint);
+    }
+    selectedCols.forEach((f, i) => {
+        const chip = document.createElement('div');
+        chip.className = 'col-selected-chip';
+        chip.draggable = true;
+        chip.dataset.field = f;
+        chip.dataset.index = i;
+        chip.innerHTML = `<span>${COL_LABELS[f] || f}</span><span class="rm" onclick="removeCol('${f}')">✕</span>`;
+        chip.addEventListener('dragstart', dragStartSelected);
+        chip.addEventListener('dragover',  dragOverSelected);
+        chip.addEventListener('drop',      dropSelected);
+        area.appendChild(chip);
+    });
+    document.getElementById('colCount').textContent = selectedCols.length;
+    markUsed();
+}
+
+function removeCol(field) {
+    selectedCols = selectedCols.filter(f => f !== field);
+    renderSelectedCols();
+    refresh();
+}
+
+function selectAllCols() {
+    selectedCols = ALL_COLS.map(([f]) => f);
+    renderSelectedCols(); refresh();
+}
+function clearCols() {
+    selectedCols = [];
+    renderSelectedCols(); refresh();
+}
+function selectDefaultCols() {
+    selectedCols = [...DEFAULT_COLS];
+    renderSelectedCols(); refresh();
+}
+
+// ── Drag from pool ────────────────────────────────────────────────────────
+function dragStart(e) {
+    dragSrcField = e.target.dataset.field;
+    e.dataTransfer.setData('text/plain', dragSrcField);
+    e.dataTransfer.effectAllowed = 'copy';
+}
+
+function allowDrop(e) {
+    e.preventDefault();
+    e.currentTarget.classList.add('drag-over');
+}
+
+document.getElementById('selectedCols').addEventListener('dragleave', e => {
+    e.currentTarget.classList.remove('drag-over');
+});
+
+function dropCol(e) {
+    e.preventDefault();
+    e.currentTarget.classList.remove('drag-over');
+    const field = e.dataTransfer.getData('text/plain');
+    if (field && !selectedCols.includes(field)) {
+        selectedCols.push(field);
+        renderSelectedCols();
+        refresh();
+    }
+}
+
+// ── Drag to reorder selected ──────────────────────────────────────────────
+let dragIdx = null;
+function dragStartSelected(e) {
+    dragIdx = parseInt(e.currentTarget.dataset.index);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', '');
+}
+function dragOverSelected(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+}
+function dropSelected(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const targetIdx = parseInt(e.currentTarget.dataset.index);
+    if (dragIdx === null || dragIdx === targetIdx) return;
+    const moved = selectedCols.splice(dragIdx, 1)[0];
+    selectedCols.splice(targetIdx, 0, moved);
+    dragIdx = null;
+    renderSelectedCols();
+    refresh();
+}
+
+// ── Filtri ────────────────────────────────────────────────────────────────
+function getFilters() {
+    const hotels = [...document.querySelectorAll('#filterHotels input:checked')].map(i => i.value);
+    const stati  = [...document.querySelectorAll('#filterStati input:checked')].map(i => i.value);
+    const notti  = [...document.querySelectorAll('input[name="notte"]:checked')].map(i => i.value);
+    const inclCxl = document.getElementById('includeCxl').checked;
+    return { hotels, stati, notti, include_cxl: inclCxl };
+}
+
+// ── Preview ───────────────────────────────────────────────────────────────
+let refreshTimer = null;
+function refresh(page) {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => _doRefresh(page || 1), 250);
+}
+
+async function _doRefresh(page) {
+    currentPage = page;
+    if (selectedCols.length === 0) {
+        document.getElementById('previewWrap').innerHTML =
+            '<div class="preview-empty">Seleziona almeno una colonna per vedere l\'anteprima</div>';
+        document.getElementById('previewCount').textContent = '';
+        document.getElementById('pagination').style.display = 'none';
+        return;
+    }
+    const payload = { cols: selectedCols, page, ...getFilters() };
+    const res  = await fetch(`/api/preview/${BATCH_ID}`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    renderPreview(data);
+}
+
+function renderPreview(data) {
+    const wrap = document.getElementById('previewWrap');
+    document.getElementById('previewCount').textContent =
+        `(${data.total} partecipanti · pagina ${data.page}/${data.pages || 1})`;
+
+    if (!data.rows.length) {
+        wrap.innerHTML = '<div class="preview-empty">Nessun risultato con i filtri selezionati</div>';
+        document.getElementById('pagination').style.display = 'none';
+        return;
+    }
+
+    let html = '<table><thead><tr>';
+    selectedCols.forEach(f => {
+        html += `<th>${data.labels[f] || f}</th>`;
+    });
+    html += '</tr></thead><tbody>';
+
+    data.rows.forEach(row => {
+        const isCxl = (row['registration_state'] || '').toUpperCase() === 'CXL';
+        html += `<tr class="${isCxl ? 'is-cxl' : ''}">`;
+        selectedCols.forEach(f => {
+            html += `<td>${row[f] || ''}</td>`;
+        });
+        html += '</tr>';
+    });
+    html += '</tbody></table>';
+    wrap.innerHTML = html;
+
+    // Paginazione
+    const pag = document.getElementById('pagination');
+    if (data.pages > 1) {
+        pag.style.display = 'flex';
+        let pagHtml = '';
+        for (let p = 1; p <= data.pages; p++) {
+            pagHtml += `<button class="${p===data.page?'active':''}" onclick="refresh(${p})">${p}</button>`;
+        }
+        pag.innerHTML = pagHtml;
+    } else {
+        pag.style.display = 'none';
+    }
+}
+
+// ── Export Excel ──────────────────────────────────────────────────────────
+function doExport() {
+    if (selectedCols.length === 0) { alert('Seleziona almeno una colonna.'); return; }
+    // Mostra modale spouse
+    const modal = document.getElementById('spouseModal');
+    modal.style.display = 'flex';
+}
+
+async function confirmExport(elaborateSpouse) {
+    document.getElementById('spouseModal').style.display = 'none';
+    const btn = document.getElementById('exportBtn');
+    btn.textContent = '⏳ Generazione…';
+    btn.disabled = true;
+
+    const titleName = document.getElementById('configName').value.trim() || 'Export Rooming List';
+    const payload = {
+        cols: selectedCols,
+        title: titleName,
+        elaborate_spouse: elaborateSpouse,
+        ...getFilters()
+    };
+
+    const res = await fetch(`/api/export-custom/${BATCH_ID}`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+        const blob = await res.blob();
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement('a');
+        const ts   = new Date().toISOString().slice(0,10).replace(/-/g,'');
+        a.href = url; a.download = `Export_${ts}.xlsx`; a.click();
+        URL.revokeObjectURL(url);
+    } else {
+        alert('Errore durante la generazione.');
+    }
+    btn.textContent = '⬇ Scarica Excel';
+    btn.disabled = false;
+}
+
+// ── Salva / carica config ─────────────────────────────────────────────────
+async function saveConfig() {
+    const name = document.getElementById('configName').value.trim();
+    if (!name) { alert('Inserisci un nome per la configurazione.'); return; }
+    const payload = { name, cols: selectedCols, ...getFilters() };
+    const res = await fetch('/api/save-config', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.ok) {
+        alert(`Configurazione "${name}" salvata.`);
+        // Aggiorna select se presente
+        const sel = document.getElementById('configSelect');
+        if (sel && ![...sel.options].find(o => o.value === name)) {
+            const opt = document.createElement('option');
+            opt.value = opt.textContent = name;
+            sel.appendChild(opt);
+        }
+    }
+}
+
+async function loadConfig(name) {
+    if (!name) return;
+    const res  = await fetch(`/api/load-config/${encodeURIComponent(name)}`);
+    const data = await res.json();
+    if (data.error) { alert(data.error); return; }
+    selectedCols = data.cols || [];
+
+    // Ripristina hotel
+    document.querySelectorAll('#filterHotels input').forEach(i => {
+        i.checked = !data.hotels.length || data.hotels.includes(i.value);
+    });
+    // Ripristina stati
+    document.querySelectorAll('#filterStati input').forEach(i => {
+        i.checked = !data.stati.length || data.stati.includes(i.value);
+    });
+    // Ripristina notti
+    document.querySelectorAll('input[name="notte"]').forEach(i => {
+        i.checked = data.notti.includes(i.value);
+    });
+    document.getElementById('includeCxl').checked = data.include_cxl !== false;
+
+    renderSelectedCols();
+    refresh();
+}
+</script>
+{% endblock %}

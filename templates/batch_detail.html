@@ -1,0 +1,300 @@
+{% extends 'base.html' %}
+{% block title %}Dettaglio Batch — Nexus Rooming{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <a href="{{ url_for('rooming.index') }}" class="back-link">← Import</a>
+    <h1>Dettaglio Batch</h1>
+    <p class="page-sub mono">{{ batch_id }}</p>
+</div>
+
+{% if prev_batch %}
+<div class="diff-legend">
+    <span class="legend-item new">🟢 Nuovo</span>
+    <span class="legend-item changed">🟡 Modificato</span>
+    <span class="legend-item cxl">🔴 CXL</span>
+    <span class="legend-sep">Confronto con: <span class="mono">{{ prev_batch[16:] if prev_batch|length > 16 else prev_batch }}</span></span>
+</div>
+{% endif %}
+
+<!-- Azioni batch -->
+<div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+    <a href="{{ url_for('rooming.export_all', batch_id=batch_id) }}"
+       class="btn-sm btn-export">⬇ ZIP — tutti gli hotel</a>
+    <button class="btn-sm btn-export" onclick="togglePivot()">📊 Pivot notti x hotel</button>
+    <a href="{{ url_for('rooming.export_pivot', batch_id=batch_id) }}"
+       class="btn-sm btn-export">⬇ Pivot Excel</a>
+    <button class="btn-sm btn-export" onclick="toggleOccupancy()" style="border-color:#7C3AED;color:#7C3AED">🏨 Confirmed vs Contract</button>
+    <a href="{{ url_for('rooming.export_custom', batch_id=batch_id) }}"
+       class="btn-primary" style="font-size:13px;padding:6px 14px">⚙ Export Dinamico</a>
+</div>
+
+<!-- Occupancy: Confirmed vs By Contract -->
+<div id="occupancySection" style="display:none;margin-bottom:20px">
+    <div class="card">
+        <h2 style="margin-bottom:12px">Confirmed vs By Contract</h2>
+        <div id="occupancyContent">
+            <p style="color:var(--text-muted);font-size:13px">Caricamento…</p>
+        </div>
+    </div>
+</div>
+
+<!-- Pivot notti x hotel -->
+<div id="pivotSection" style="display:none;margin-bottom:20px">
+    <div class="card">
+        <h2 style="margin-bottom:12px">Pivot — Notti per Hotel</h2>
+        <div id="pivotContent">
+            <p style="color:var(--text-muted);font-size:13px">Caricamento…</p>
+        </div>
+    </div>
+</div>
+
+<!-- Riepilogo hotel -->
+<div class="hotels-grid">
+{% for hotel, rows in hotels.items() | sort %}
+    {% set active = rows | selectattr('is_cxl', 'equalto', false) | list | length %}
+    {% set cxl    = rows | length - active %}
+    <div class="hotel-card">
+        <div class="hotel-name">{{ hotel }}</div>
+        <div class="hotel-stats">
+            <span class="stat-active">{{ active }} attivi</span>
+            {% if cxl %}<span class="stat-cxl">{{ cxl }} CXL</span>{% endif %}
+        </div>
+        <a href="{{ url_for('rooming.export_hotel', batch_id=batch_id, hotel_name=hotel) }}"
+           class="btn-export-hotel">⬇ Scarica Excel</a>
+    </div>
+{% endfor %}
+</div>
+
+<!-- Tabella partecipanti per hotel -->
+{% for hotel, rows in hotels.items() | sort %}
+<div class="card hotel-section">
+    <div class="hotel-section-header">
+        <h2>{{ hotel }}</h2>
+        <a href="{{ url_for('rooming.export_hotel', batch_id=batch_id, hotel_name=hotel) }}"
+           class="btn-sm btn-export">⬇ Excel</a>
+    </div>
+
+    <div class="table-scroll">
+    <table class="table table-sm">
+        <thead>
+            <tr>
+                <th>Stato</th>
+                <th>Cognome</th>
+                <th>Nome</th>
+                <th>Azienda</th>
+                <th>Paese</th>
+                <th>Categoria</th>
+                <th>Notti</th>
+                <th>Arrivo</th>
+                <th>Dieta</th>
+                <th>Commento</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in rows | sort(attribute='last_name') %}
+            {% set ref = row.internal_reference or ('__noref_' ~ row.last_name ~ '_' ~ row.first_name) %}
+            {% set is_new     = diff.get(ref) == ['NEW'] %}
+            {% set is_changed = ref in diff and diff[ref] != ['NEW'] %}
+            <tr class="{{ 'row-cxl' if row.is_cxl else ('row-new' if is_new else ('row-changed' if is_changed else '')) }}">
+                <td>
+                    <span class="badge-state badge-{{ (row.registration_state or 'unknown') | lower }}">
+                        {{ row.registration_state or '—' }}
+                    </span>
+                </td>
+                <td class="fw-medium">{{ row.last_name or '—' }}</td>
+                <td>{{ row.first_name or '—' }}</td>
+                <td>{{ row.company_name or '—' }}</td>
+                <td>{{ row.company_country or '—' }}</td>
+                <td><span class="cat-pill">{{ row.company_category or '—' }}</span></td>
+                <td class="nights-cell">
+                    {% if row.night_sat_28mar %}<span class="night" title="Sab 28/03">28</span>{% endif %}
+                    {% if row.night_sun_29mar %}<span class="night" title="Dom 29/03">29</span>{% endif %}
+                    {% if row.night_mon_30mar %}<span class="night" title="Lun 30/03">30</span>{% endif %}
+                    {% if row.night_tue_31mar %}<span class="night" title="Mar 31/03">31</span>{% endif %}
+                    {% if row.night_wed_1apr  %}<span class="night" title="Mer 01/04">1</span>{% endif %}
+                    {% if row.night_thu_2apr  %}<span class="night" title="Gio 02/04">2</span>{% endif %}
+                    {% if row.night_fri_3apr  %}<span class="night" title="Ven 03/04">3</span>{% endif %}
+                    {% if row.night_sat_4apr  %}<span class="night" title="Sab 04/04">4</span>{% endif %}
+                    {% if row.night_no_need   %}<span class="night night-none" title="No need">—</span>{% endif %}
+                </td>
+                <td>{{ row.arrival_mode or '—' }}</td>
+                <td>{{ row.diet_restrictions or '' }}</td>
+                <td class="comment-cell">{{ row.comment or '' }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endfor %}
+
+<!-- Export tutto -->
+<div class="export-all-bar" style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+    <a href="{{ url_for('rooming.export_all', batch_id=batch_id) }}"
+       class="btn-primary">⬇ ZIP — tutti gli hotel</a>
+    <a href="{{ url_for('rooming.export_custom', batch_id=batch_id) }}"
+       class="btn-primary" style="background:#2563EB">⚙ Export Dinamico</a>
+</div>
+
+<style>
+.pivot-table { border-collapse:collapse; font-size:12px; width:100%; }
+.pivot-table th {
+    background:var(--primary); color:#fff; font-weight:600;
+    padding:8px 12px; text-align:center; border:1px solid #fff;
+    white-space:nowrap;
+}
+.pivot-table th.night-col { text-align:left; min-width:220px; }
+.pivot-table td {
+    padding:7px 12px; border:1px solid var(--border);
+    text-align:center; font-variant-numeric:tabular-nums;
+}
+.pivot-table td.night-label { text-align:left; font-weight:500; background:#F8FAFC; }
+.pivot-table td.zero { color:#CCC; }
+.pivot-table tr.total-row td {
+    background:var(--primary); color:#fff; font-weight:700;
+}
+.pivot-table td.grand-total {
+    background:#1a3070; color:#fff; font-weight:700; font-size:13px;
+}
+.pivot-table tbody tr:hover td { background:#EFF6FF; }
+.pivot-table tbody tr:hover td.night-label { background:#DBEAFE; }
+.pivot-table tbody tr.total-row:hover td { background:var(--primary); }
+</style>
+
+<script>
+const BATCH_ID_PIVOT = {{ batch_id | tojson }};
+let pivotLoaded = false;
+
+async function togglePivot() {
+    const section = document.getElementById('pivotSection');
+    if (section.style.display === 'none') {
+        section.style.display = 'block';
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (!pivotLoaded) {
+            await loadPivot();
+            pivotLoaded = true;
+        }
+    } else {
+        section.style.display = 'none';
+    }
+}
+
+async function loadPivot() {
+    const res  = await fetch(`/api/pivot/${BATCH_ID_PIVOT}`);
+    const data = await res.json();
+    if (data.error) {
+        document.getElementById('pivotContent').innerHTML =
+            `<p style="color:red">${data.error}</p>`;
+        return;
+    }
+
+    const { hotels, nights, pivot } = data;
+
+    let html = '<div style="overflow-x:auto"><table class="pivot-table"><thead><tr>';
+    html += '<th class="night-col">Notte</th>';
+    hotels.forEach(h => { html += `<th>${h}</th>`; });
+    html += '<th>Grand Total</th></tr></thead><tbody>';
+
+    nights.forEach(n => {
+        const rowTotal = hotels.reduce((s, h) => s + (pivot[n.field][h] || 0), 0);
+        html += '<tr>';
+        html += `<td class="night-label">${n.label}</td>`;
+        hotels.forEach(h => {
+            const val = pivot[n.field][h] || 0;
+            html += val
+                ? `<td>${val}</td>`
+                : `<td class="zero">—</td>`;
+        });
+        html += rowTotal
+            ? `<td style="font-weight:600;background:#D9E1F2">${rowTotal}</td>`
+            : `<td class="zero">—</td>`;
+        html += '</tr>';
+    });
+
+    // Grand Total row
+    html += '<tr class="total-row"><td class="night-label">Grand Total</td>';
+    let grandTotal = 0;
+    hotels.forEach(h => {
+        const colTotal = nights.reduce((s, n) => s + (pivot[n.field][h] || 0), 0);
+        grandTotal += colTotal;
+        html += `<td>${colTotal || '—'}</td>`;
+    });
+    html += `<td class="grand-total">${grandTotal}</td></tr>`;
+    html += '</tbody></table></div>';
+
+    document.getElementById('pivotContent').innerHTML = html;
+}
+
+let occupancyLoaded = false;
+
+async function toggleOccupancy() {
+    const section = document.getElementById('occupancySection');
+    if (section.style.display === 'none') {
+        section.style.display = 'block';
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        if (!occupancyLoaded) {
+            await loadOccupancy();
+            occupancyLoaded = true;
+        }
+    } else {
+        section.style.display = 'none';
+    }
+}
+
+async function loadOccupancy() {
+    const res  = await fetch(`/api/occupancy/${BATCH_ID_PIVOT}`);
+    const data = await res.json();
+
+    if (!data.has_contracts) {
+        document.getElementById('occupancyContent').innerHTML =
+            '<p style="color:var(--warn);font-size:13px">⚠ Nessun contratto caricato. Vai nella home e carica il file contratti.</p>';
+        return;
+    }
+
+    const { hotels, dates, data: occ } = data;
+    let html = '<div style="overflow-x:auto"><table class="pivot-table"><thead><tr>';
+    html += '<th class="night-col" style="min-width:180px">Hotel</th>';
+    html += '<th style="min-width:110px">Voce</th>';
+    dates.forEach(d => { html += `<th>${d}</th>`; });
+    html += '</tr></thead><tbody>';
+
+    hotels.forEach(hotel => {
+        const conf = occ[hotel].confirmed;
+        const cont = occ[hotel].contract;
+
+        // Riga CONFIRMED
+        html += `<tr>
+            <td class="night-label" rowspan="3" style="font-weight:600;vertical-align:middle">${hotel}</td>
+            <td class="night-label">CONFIRMED</td>`;
+        conf.forEach(v => {
+            html += v ? `<td>${v}</td>` : `<td class="zero">—</td>`;
+        });
+        html += '</tr>';
+
+        // Riga BY CONTRACT
+        html += '<tr><td class="night-label" style="color:#7C3AED;font-weight:500">BY CONTRACT</td>';
+        cont.forEach(v => {
+            html += v ? `<td style="color:#7C3AED;font-weight:500">${v}</td>` : `<td class="zero">—</td>`;
+        });
+        html += '</tr>';
+
+        // Riga DELTA
+        html += '<tr><td class="night-label" style="color:var(--text-muted);font-size:11px">DELTA</td>';
+        conf.forEach((v, i) => {
+            const delta = v - cont[i];
+            const color = delta < 0 ? 'var(--danger)' : delta > 0 ? 'var(--success)' : 'var(--text-muted)';
+            const sign  = delta > 0 ? '+' : '';
+            html += (delta !== 0 || cont[i] > 0)
+                ? `<td style="color:${color};font-weight:600;font-size:11px">${sign}${delta}</td>`
+                : `<td class="zero">—</td>`;
+        });
+        html += '</tr>';
+    });
+
+    html += '</tbody></table></div>';
+    html += '<p style="font-size:11px;color:var(--text-muted);margin-top:8px">DELTA = CONFIRMED − BY CONTRACT &nbsp;|&nbsp; <span style="color:var(--danger)">rosso</span> = sotto contratto &nbsp;|&nbsp; <span style="color:var(--success)">verde</span> = sopra contratto</p>';
+    document.getElementById('occupancyContent').innerHTML = html;
+}
+</script>
+{% endblock %}

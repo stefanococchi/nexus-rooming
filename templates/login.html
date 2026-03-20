@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block title %}Login — Nexus Rooming{% endblock %}
+
+{% block content %}
+<div class="login-wrap">
+    <div class="login-box">
+        <div class="login-logo">⬡</div>
+        <h1 class="login-title">Nexus Rooming</h1>
+        <p class="login-sub">Inserisci la password per accedere</p>
+
+        <form method="POST">
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" name="password"
+                       placeholder="Password" autocomplete="current-password"
+                       autofocus required>
+            </div>
+            <button type="submit" class="btn-primary">Accedi</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

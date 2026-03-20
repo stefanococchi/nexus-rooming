@@ -1,0 +1,119 @@
+{% extends 'base.html' %}
+{% block title %}Import — Nexus Rooming{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Rooming List</h1>
+    <p class="page-sub">Importa il file XLS Nexus e genera le liste per hotel</p>
+</div>
+
+<!-- Upload -->
+<div class="card upload-card">
+    <h2>Nuovo Import</h2>
+    <form method="POST" action="{{ url_for('rooming.upload') }}"
+          enctype="multipart/form-data" id="uploadForm">
+        <div class="upload-zone" id="dropZone">
+            <input type="file" name="file" id="fileInput"
+                   accept=".xlsx" class="file-input" required>
+            <div class="upload-icon">📂</div>
+            <p class="upload-label">Trascina qui il file XLS Nexus</p>
+            <p class="upload-hint">oppure <span class="link">clicca per selezionare</span></p>
+            <p class="upload-filename" id="uploadFilename" style="display:none"></p>
+        </div>
+        <button type="submit" class="btn-primary" id="uploadBtn" disabled>
+            Carica file
+        </button>
+    </form>
+</div>
+
+<!-- Upload contratti -->
+<div class="card upload-card" style="max-width:580px;margin-bottom:20px">
+    <h2>Carica Contratti Hotel</h2>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">
+        File Excel con i blocchi camere garantiti per hotel e data.
+        Sovrascrive i valori precedenti.
+    </p>
+    <form method="POST" action="{{ url_for('rooming.upload_contracts') }}"
+          enctype="multipart/form-data" style="display:flex;gap:10px;align-items:center">
+        <input type="file" name="file" accept=".xlsx" required
+               style="font-size:13px;flex:1">
+        <button type="submit" class="btn-sm btn-export">⬆ Carica</button>
+    </form>
+</div>
+
+{% if batches %}
+<div class="card">
+    <h2>Import precedenti</h2>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Data import</th>
+                <th>File</th>
+                <th>Partecipanti</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for batch_id, total, imported_at in batches %}
+            <tr>
+                <td class="mono">{{ imported_at.strftime('%d/%m/%Y %H:%M') }}</td>
+                <td class="batch-name">{{ batch_id[16:] if batch_id|length > 16 else batch_id }}</td>
+                <td><span class="badge">{{ total }}</span></td>
+                <td class="actions">
+                    <a href="{{ url_for('rooming.batch_detail', batch_id=batch_id) }}"
+                       class="btn-sm">Dettaglio</a>
+                    <a href="{{ url_for('rooming.export_all', batch_id=batch_id) }}"
+                       class="btn-sm btn-export">⬇ Tutti gli hotel</a>
+                    <form method="POST"
+                          action="{{ url_for('rooming.delete_batch', batch_id=batch_id) }}"
+                          style="display:inline"
+                          onsubmit="return confirm('Eliminare questo batch?')">
+                        <button type="submit" class="btn-sm btn-danger">Elimina</button>
+                    </form>
+                </td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="empty-state">
+    <p>Nessun import ancora. Carica il primo file XLS.</p>
+</div>
+{% endif %}
+
+<script>
+const dropZone    = document.getElementById('dropZone');
+const fileInput   = document.getElementById('fileInput');
+const uploadBtn   = document.getElementById('uploadBtn');
+const uploadFname = document.getElementById('uploadFilename');
+const uploadLabel = document.querySelector('.upload-label');
+const uploadHint  = document.querySelector('.upload-hint');
+
+dropZone.addEventListener('click', () => fileInput.click());
+
+fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) {
+        const name = fileInput.files[0].name;
+        uploadFname.textContent = name;
+        uploadFname.style.display = '';
+        uploadLabel.style.display = 'none';
+        uploadHint.style.display  = 'none';
+        uploadBtn.disabled = false;
+        dropZone.classList.add('has-file');
+    }
+});
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const files = e.dataTransfer.files;
+    if (files.length && files[0].name.endsWith('.xlsx')) {
+        fileInput.files = files;
+        fileInput.dispatchEvent(new Event('change'));
+    }
+});
+</script>
+{% endblock %}
