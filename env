@@ -1,3 +1,0 @@
-SECRET_KEY=nexus-rooming-secret-cambia-in-produzione
-DATABASE_URL=postgresql://postgres:123456@localhost:5432/nexus_rooming
-APP_PASSWORD=nexus2026
