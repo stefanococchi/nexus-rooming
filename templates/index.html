@@ -13,11 +13,11 @@
     <form method="POST" action="{{ url_for('rooming.upload') }}"
           enctype="multipart/form-data" id="uploadForm">
         <div class="upload-zone" id="dropZone">
-            <input type="file" name="file" id="fileInput"
-                   accept=".xlsx" class="file-input" required>
             <div class="upload-icon">📂</div>
             <p class="upload-label">Trascina qui il file XLS Nexus</p>
-            <p class="upload-hint">oppure <span class="link">clicca per selezionare</span></p>
+            <p class="upload-hint">oppure</p>
+            <button type="button" class="btn-sm" onclick="document.getElementById('fileInput').click()" style="margin-top:8px">Seleziona file…</button>
+            <input type="file" name="file" id="fileInput" accept=".xlsx" required style="display:none">
             <p class="upload-filename" id="uploadFilename" style="display:none"></p>
         </div>
         <button type="submit" class="btn-primary" id="uploadBtn" disabled>
@@ -90,8 +90,6 @@ const uploadFname = document.getElementById('uploadFilename');
 const uploadLabel = document.querySelector('.upload-label');
 const uploadHint  = document.querySelector('.upload-hint');
 
-dropZone.addEventListener('click', () => fileInput.click());
-
 fileInput.addEventListener('change', () => {
     if (fileInput.files.length) {
         const name = fileInput.files[0].name;
@@ -111,7 +109,9 @@ dropZone.addEventListener('drop', e => {
     dropZone.classList.remove('drag-over');
     const files = e.dataTransfer.files;
     if (files.length && files[0].name.endsWith('.xlsx')) {
-        fileInput.files = files;
+        const dt = new DataTransfer();
+        dt.items.add(files[0]);
+        fileInput.files = dt.files;
         fileInput.dispatchEvent(new Event('change'));
     }
 });
