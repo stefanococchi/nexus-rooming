@@ -36,10 +36,12 @@
             <h2 style="margin-bottom:12px">Filtri</h2>
 
             <div class="filter-group">
-                <label>Hotel</label>
-                <div class="check-list" id="filterHotels">
+                <label>Hotel
+                    <button type="button" onclick="toggleAllHotels()" class="btn-toggle-all">tutto/niente</button>
+                </label>
+                <div class="hotel-grid" id="filterHotels">
                 {% for h in hotels %}
-                    <label class="check-item">
+                    <label class="check-item hotel-check-item">
                         <input type="checkbox" name="hotel" value="{{ h }}" checked onchange="refresh()">
                         <span>{{ h }}</span>
                     </label>
@@ -161,10 +163,29 @@ body > footer { display:none; }
     background: var(--bg);
 }
 
+.filter-group > label { display:flex; align-items:center; justify-content:space-between;
+    font-size:12px; font-weight:600; color:var(--text-muted);
+    text-transform:uppercase; letter-spacing:.4px; margin-bottom:6px; }
+.btn-toggle-all { font-size:10px; font-weight:400; color:var(--accent);
+    background:none; border:none; cursor:pointer; text-transform:none;
+    letter-spacing:0; padding:0; }
+.btn-toggle-all:hover { text-decoration:underline; }
+
+.hotel-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+}
+.hotel-check-item {
+    display:flex; align-items:center; gap:4px; font-size:12px;
+    background:var(--bg); border:1px solid var(--border); border-radius:4px;
+    padding:4px 7px; cursor:pointer; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis;
+}
+.hotel-check-item:hover { background:#EFF6FF; border-color:var(--accent); }
+
 .filter-group { margin-bottom:14px; }
-.filter-group > label { display:block; font-size:12px; font-weight:600;
-    color:var(--text-muted); text-transform:uppercase; letter-spacing:.4px; margin-bottom:6px; }
-.check-list { display:flex; flex-wrap:wrap; gap:4px; max-height:120px; overflow-y:auto; }
+.check-list { display:flex; flex-wrap:wrap; gap:4px; }
 .check-item { display:flex; align-items:center; gap:4px; font-size:12px;
     background:var(--bg); border:1px solid var(--border); border-radius:4px;
     padding:3px 7px; cursor:pointer; }
@@ -237,10 +258,15 @@ const BATCH_ID   = {{ batch_id | tojson }};
 const ALL_COLS   = {{ all_cols | tojson }};
 const COL_LABELS = Object.fromEntries(ALL_COLS);
 
-const DEFAULT_COLS = ['title','last_name','first_name','company_name','company_country',
-    'company_category','registration_state','hotel',
-    'night_mon_30mar','night_tue_31mar','night_wed_1apr',
-    'arrival_mode','diet_restrictions','email','phone'];
+const DEFAULT_COLS = [
+    'title','last_name','first_name',
+    'comment','email','phone',
+    'billing','upgrade',
+    'arrival_mode','check_in','check_out',
+    'need_visa','visa_birth_date','visa_birth_place',
+    'visa_passport','visa_delivery_date','visa_expiration_date',
+    'latest_changes','change_type','change_date'
+];
 
 let selectedCols = [...DEFAULT_COLS];
 let currentPage  = 1;
@@ -252,6 +278,16 @@ document.addEventListener('DOMContentLoaded', () => {
     renderSelectedCols();
     refresh();
 });
+
+// ── Toggle tutti gli hotel ────────────────────────────────────────────────
+let allHotelsChecked = true;
+function toggleAllHotels() {
+    allHotelsChecked = !allHotelsChecked;
+    document.querySelectorAll('#filterHotels input').forEach(i => {
+        i.checked = allHotelsChecked;
+    });
+    refresh();
+}
 
 // ── Colonne disponibili ───────────────────────────────────────────────────
 function filterCols(q) {

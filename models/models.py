@@ -37,11 +37,15 @@ class RoomingList(db.Model):
     # Metadati import
     imported_at                 = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     import_batch                = db.Column(db.String(300), nullable=False, index=True)
+    file_timestamp              = db.Column(db.DateTime, nullable=True)   # ultima modifica del file XLS
 
     # Col 0
     registration_state          = db.Column(db.String(50))
     # Col 1
     latest_changes              = db.Column(db.Text)
+    # Campi derivati da latest_changes
+    change_type                 = db.Column(db.String(50), nullable=True, index=True)
+    change_date                 = db.Column(db.Date, nullable=True, index=True)
     # Col 2
     hotel                       = db.Column(db.String(200), index=True)
     # Col 3

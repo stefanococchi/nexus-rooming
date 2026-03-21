@@ -25,8 +25,31 @@
     <a href="{{ url_for('rooming.export_pivot', batch_id=batch_id) }}"
        class="btn-sm btn-export">⬇ Pivot Excel</a>
     <button class="btn-sm btn-export" onclick="toggleOccupancy()" style="border-color:#7C3AED;color:#7C3AED">🏨 Confirmed vs Contract</button>
+    <button class="btn-sm btn-export" onclick="openCategoryModal()" style="border-color:#B8860B;color:#B8860B">📋 Report per Categoria</button>
+    <button class="btn-sm btn-export" onclick="openBillingModal()" style="border-color:#0369A1;color:#0369A1">💳 Report per Billing</button>
+    <button class="btn-sm btn-export" onclick="openArrivalModal()" style="border-color:#059669;color:#059669">✈ Report per Arrivo</button>
     <a href="{{ url_for('rooming.export_custom', batch_id=batch_id) }}"
        class="btn-primary" style="font-size:13px;padding:6px 14px">⚙ Export Dinamico</a>
+</div>
+
+<!-- Modale selezione categorie -->
+<div id="categoryModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:10px;padding:28px 32px;max-width:440px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+        <h3 style="font-size:16px;font-weight:600;color:var(--primary);margin-bottom:14px">Report per Categoria</h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Seleziona una o più categorie:</p>
+        <div style="margin-bottom:10px">
+            <button type="button" class="btn-sm" onclick="toggleAllCategories()">tutto/niente</button>
+        </div>
+        <form method="POST" action="{{ url_for('rooming.report_category', batch_id=batch_id) }}" id="categoryForm">
+            <div id="categoryList" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:18px">
+                <!-- popolato da JS -->
+            </div>
+            <div style="display:flex;gap:10px;justify-content:flex-end">
+                <button type="button" class="btn-sm" onclick="closeCategoryModal()">Annulla</button>
+                <button type="submit" class="btn-primary">⬇ Scarica Excel</button>
+            </div>
+        </form>
+    </div>
 </div>
 
 <!-- Occupancy: Confirmed vs By Contract -->
@@ -39,7 +62,42 @@
     </div>
 </div>
 
-<!-- Pivot notti x hotel -->
+<!-- Modale selezione billing -->
+<div id="billingModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:10px;padding:28px 32px;max-width:440px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+        <h3 style="font-size:16px;font-weight:600;color:var(--primary);margin-bottom:14px">Report per Billing</h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Seleziona uno o più valori:</p>
+        <div style="margin-bottom:10px">
+            <button type="button" class="btn-sm" onclick="toggleAllBillings()">tutto/niente</button>
+        </div>
+        <form method="POST" action="{{ url_for('rooming.report_billing', batch_id=batch_id) }}" id="billingForm">
+            <div id="billingList" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:18px">
+            </div>
+            <div style="display:flex;gap:10px;justify-content:flex-end">
+                <button type="button" class="btn-sm" onclick="closeBillingModal()">Annulla</button>
+                <button type="submit" class="btn-primary">⬇ Scarica Excel</button>
+            </div>
+        </form>
+    </div>
+</div>
+<!-- Modale selezione arrival -->
+<div id="arrivalModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:10px;padding:28px 32px;max-width:440px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+        <h3 style="font-size:16px;font-weight:600;color:var(--primary);margin-bottom:14px">Report per Modalità Arrivo</h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Seleziona uno o più valori:</p>
+        <div style="margin-bottom:10px">
+            <button type="button" class="btn-sm" onclick="toggleAllArrivals()">tutto/niente</button>
+        </div>
+        <form method="POST" action="{{ url_for('rooming.report_arrival', batch_id=batch_id) }}">
+            <div id="arrivalList" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:18px"></div>
+            <div style="display:flex;gap:10px;justify-content:flex-end">
+                <button type="button" class="btn-sm" onclick="closeArrivalModal()">Annulla</button>
+                <button type="submit" class="btn-primary">⬇ Scarica Excel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div id="pivotSection" style="display:none;margin-bottom:20px">
     <div class="card">
         <h2 style="margin-bottom:12px">Pivot — Notti per Hotel</h2>
@@ -60,6 +118,13 @@
             <span class="stat-active">{{ active }} attivi</span>
             {% if cxl %}<span class="stat-cxl">{{ cxl }} CXL</span>{% endif %}
         </div>
+        {% if hotel_changes.get(hotel) %}
+        <div class="hotel-changes">
+            {% for ctype, cdate, cnt in hotel_changes[hotel] %}
+            <span class="change-badge">{{ ctype }} · {{ cdate }} · {{ cnt }}</span>
+            {% endfor %}
+        </div>
+        {% endif %}
         <a href="{{ url_for('rooming.export_hotel', batch_id=batch_id, hotel_name=hotel) }}"
            class="btn-export-hotel">⬇ Scarica Excel</a>
     </div>
@@ -165,6 +230,99 @@
 <script>
 const BATCH_ID_PIVOT = {{ batch_id | tojson }};
 let pivotLoaded = false;
+
+// ── Category modal ────────────────────────────────────────────────────────
+async function openCategoryModal() {
+    const res  = await fetch(`/api/categories/${BATCH_ID_PIVOT}`);
+    const data = await res.json();
+    const list = document.getElementById('categoryList');
+    list.innerHTML = '';
+    data.categories.forEach(cat => {
+        const val   = cat === null ? '__blank__' : cat;
+        const label = cat === null ? '(blank)' : cat;
+        list.innerHTML += `
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;
+                background:var(--bg);border:1px solid var(--border);border-radius:5px;
+                padding:6px 10px;cursor:pointer;">
+                <input type="checkbox" name="categories" value="${val}" checked>
+                ${label}
+            </label>`;
+    });
+    document.getElementById('categoryModal').style.display = 'flex';
+}
+
+function closeCategoryModal() {
+    document.getElementById('categoryModal').style.display = 'none';
+}
+
+let allCatsChecked = true;
+function toggleAllCategories() {
+    allCatsChecked = !allCatsChecked;
+    document.querySelectorAll('#categoryList input').forEach(i => {
+        i.checked = allCatsChecked;
+    });
+}
+
+// Chiudi modale cliccando fuori
+document.addEventListener('click', e => {
+    if (e.target === document.getElementById('categoryModal')) closeCategoryModal();
+    if (e.target === document.getElementById('billingModal'))  closeBillingModal();
+    if (e.target === document.getElementById('arrivalModal'))  closeArrivalModal();
+});
+
+// ── Billing modal ─────────────────────────────────────────────────────────
+async function openBillingModal() {
+    const res  = await fetch(`/api/billings/${BATCH_ID_PIVOT}`);
+    const data = await res.json();
+    const list = document.getElementById('billingList');
+    list.innerHTML = '';
+    data.billings.forEach(b => {
+        const val   = b === null ? '__blank__' : b;
+        const label = b === null ? '(blank)' : b;
+        list.innerHTML += `
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;
+                background:var(--bg);border:1px solid var(--border);border-radius:5px;
+                padding:6px 10px;cursor:pointer;">
+                <input type="checkbox" name="billings" value="${val}" checked>
+                ${label}
+            </label>`;
+    });
+    document.getElementById('billingModal').style.display = 'flex';
+}
+
+function closeBillingModal() {
+    document.getElementById('billingModal').style.display = 'none';
+}
+
+let allBillingsChecked = true;
+function toggleAllBillings() {
+    allBillingsChecked = !allBillingsChecked;
+    document.querySelectorAll('#billingList input').forEach(i => { i.checked = allBillingsChecked; });
+}
+
+// ── Arrival modal ─────────────────────────────────────────────────────────
+async function openArrivalModal() {
+    const res  = await fetch(`/api/arrivals/${BATCH_ID_PIVOT}`);
+    const data = await res.json();
+    const list = document.getElementById('arrivalList');
+    list.innerHTML = '';
+    data.arrivals.forEach(a => {
+        const val   = a === null ? '__blank__' : a;
+        const label = a === null ? '(blank)' : a;
+        list.innerHTML += `<label style="display:flex;align-items:center;gap:6px;font-size:13px;
+            background:var(--bg);border:1px solid var(--border);border-radius:5px;
+            padding:6px 10px;cursor:pointer;">
+            <input type="checkbox" name="arrivals" value="${val}" checked>${label}</label>`;
+    });
+    document.getElementById('arrivalModal').style.display = 'flex';
+}
+function closeArrivalModal() { document.getElementById('arrivalModal').style.display = 'none'; }
+let allArrivalsChecked = true;
+function toggleAllArrivals() {
+    allArrivalsChecked = !allArrivalsChecked;
+    document.querySelectorAll('#arrivalList input').forEach(i => { i.checked = allArrivalsChecked; });
+}
+
 
 async function togglePivot() {
     const section = document.getElementById('pivotSection');

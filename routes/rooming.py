@@ -75,64 +75,54 @@ COL_MAP = {
     53: 'company_subcategory',
 }
 
-DATE_FIELDS = {'visa_birth_date', 'visa_delivery_date', 'visa_expiration_date'}
+DATE_FIELDS = {'visa_birth_date', 'visa_delivery_date', 'visa_expiration_date',
+               'change_date', 'file_timestamp', 'check_in', 'check_out'}
 INT_FIELDS  = {'registered_colleagues', 'participant_number'}
 
-# Colonne per l'Excel di output
+# Colonne per l'Excel di output hotel (sequenza standard)
 EXPORT_COLS = [
     ('title',                'Title'),
     ('last_name',            'Last Name'),
     ('first_name',           'First Name'),
-    ('company_name',         'Company'),
-    ('company_country',      'Country'),
-    ('job_position',         'Job Position'),
+    ('comment',              'Comment'),
     ('email',                'Email'),
     ('phone',                'Phone'),
-    ('company_category',     'Category'),
-    ('company_subcategory',  'Sub-Category'),
-    ('registration_state',   'Reg. State'),
-    ('night_no_need',        'No need'),
-    ('night_sat_28mar',      'Sat 28/03'),
-    ('night_sun_29mar',      'Sun 29/03'),
-    ('night_mon_30mar',      'Mon 30/03'),
-    ('night_tue_31mar',      'Tue 31/03'),
-    ('night_wed_1apr',       'Wed 01/04'),
-    ('night_thu_2apr',       'Thu 02/04'),
-    ('night_fri_3apr',       'Fri 03/04'),
-    ('night_sat_4apr',       'Sat 04/04'),
-    ('arrival_mode',         'Arrival'),
-    ('need_smooth_checkin',  'Smooth CI'),
-    ('diet_restrictions',    'Diet'),
+    ('billing',              'Billing'),
     ('upgrade',              'Upgrade'),
+    ('arrival_mode',         'Arrival Mode'),
+    ('check_in',             'Check In'),
+    ('check_out',            'Check Out'),
     ('need_visa',            'Visa?'),
     ('visa_birth_date',      'Birth Date'),
     ('visa_birth_place',     'Birth Place'),
     ('visa_passport',        'Passport N.'),
     ('visa_delivery_date',   'Doc Issued'),
     ('visa_expiration_date', 'Doc Expiry'),
-    ('visa_company_address', 'Company Address'),
-    ('comment',              'Comment'),
-    ('nexus_bd',             'NEXUS BD'),
-    ('billing',              'Billing'),
-    ('internal_reference',   'Internal Ref'),
+    ('latest_changes',       'Latest Changes'),
+    ('change_type',          'Change Type'),
+    ('change_date',          'Change Date'),
 ]
 
 DIFF_FIELDS = [f for f, _ in EXPORT_COLS]
 
 COL_WIDTHS = {
     'title': 6, 'last_name': 18, 'first_name': 16,
+    'comment': 35, 'email': 28, 'phone': 16,
+    'billing': 14, 'upgrade': 12,
+    'check_in': 12, 'check_out': 12,
+    'need_visa': 7, 'visa_birth_date': 12,
+    'visa_birth_place': 16, 'visa_passport': 14,
+    'visa_delivery_date': 12, 'visa_expiration_date': 12,
+    'latest_changes': 28, 'change_type': 16, 'change_date': 12,
+    # altri usati nell'export dinamico
     'company_name': 28, 'company_country': 12, 'job_position': 30,
-    'email': 28, 'phone': 16, 'company_category': 14,
-    'company_subcategory': 14, 'registration_state': 10,
+    'company_category': 14, 'company_subcategory': 14,
+    'registration_state': 10, 'hotel': 20,
     'night_no_need': 8, 'night_sat_28mar': 8, 'night_sun_29mar': 8,
     'night_mon_30mar': 8, 'night_tue_31mar': 8, 'night_wed_1apr': 8,
     'night_thu_2apr': 8, 'night_fri_3apr': 8, 'night_sat_4apr': 8,
     'arrival_mode': 10, 'need_smooth_checkin': 9, 'diet_restrictions': 20,
-    'upgrade': 12, 'need_visa': 7, 'visa_birth_date': 12,
-    'visa_birth_place': 16, 'visa_passport': 14, 'visa_delivery_date': 12,
-    'visa_expiration_date': 12, 'visa_company_address': 30,
-    'comment': 30, 'nexus_bd': 20, 'billing': 12,
-    'internal_reference': 14,
+    'visa_company_address': 30, 'nexus_bd': 20, 'internal_reference': 14,
 }
 
 
@@ -199,6 +189,34 @@ def compute_diff(current_dict, previous_dict):
     return diff
 
 
+from datetime import date as _date_type
+
+NIGHT_DATES = [
+    ('night_sat_28mar', _date_type(2026, 3, 28)),
+    ('night_sun_29mar', _date_type(2026, 3, 29)),
+    ('night_mon_30mar', _date_type(2026, 3, 30)),
+    ('night_tue_31mar', _date_type(2026, 3, 31)),
+    ('night_wed_1apr',  _date_type(2026, 4,  1)),
+    ('night_thu_2apr',  _date_type(2026, 4,  2)),
+    ('night_fri_3apr',  _date_type(2026, 4,  3)),
+    ('night_sat_4apr',  _date_type(2026, 4,  4)),
+]
+
+def get_checkin(row):
+    for field, d in NIGHT_DATES:
+        if getattr(row, field):
+            return d
+    return None
+
+def get_checkout(row):
+    from datetime import timedelta
+    last = None
+    for field, d in NIGHT_DATES:
+        if getattr(row, field):
+            last = d
+    return last + timedelta(days=1) if last else None
+
+
 def fmt_date(val):
     if val is None:
         return ''
@@ -208,6 +226,10 @@ def fmt_date(val):
 
 
 def cell_val(field, row):
+    if field == 'check_in':
+        return fmt_date(get_checkin(row))
+    if field == 'check_out':
+        return fmt_date(get_checkout(row))
     val = getattr(row, field, None)
     if val is None:
         return ''
@@ -218,20 +240,104 @@ def cell_val(field, row):
 
 
 def build_hotel_excel(hotel_name, rows, diff, batch_id, prev_batch_id):
-    wb  = openpyxl.Workbook()
-    ws  = wb.active
-    ws.title = 'Rooming List'
+    from models.models import HotelContract
+    from datetime import date as _date_type
+
+    wb = openpyxl.Workbook()
+    # Rinomina il foglio default che verrà usato come Pivot
+    ws_pivot = wb.active
+    ws_pivot.title = 'Pivot'
 
     hdr_font  = Font(name='Calibri', bold=True, color='FFFFFF', size=10)
     hdr_fill  = PatternFill('solid', start_color='1F3864')
-    norm_font = Font(name='Calibri', size=10)
-    diff_fill = PatternFill('solid', start_color='FFEB9C')
-    new_fill  = PatternFill('solid', start_color='C6EFCE')
-    cxl_font  = Font(name='Calibri', size=10, color='CC0000', strike=True)
-    center    = Alignment(horizontal='center', vertical='center')
-    left      = Alignment(horizontal='left',   vertical='center')
-    thin      = Border(left=Side(style='thin'), right=Side(style='thin'),
+    tot_font  = Font(name='Calibri', bold=True, size=10)
+    tot_fill  = PatternFill('solid', start_color='D9E1F2')
+    norm_font_p = Font(name='Calibri', size=10)
+    center_p  = Alignment(horizontal='center', vertical='center')
+    left_p    = Alignment(horizontal='left',   vertical='center')
+    thin_p    = Border(left=Side(style='thin'), right=Side(style='thin'),
                        top=Side(style='thin'),  bottom=Side(style='thin'))
+
+    PIVOT_NIGHTS = [
+        ('night_sat_28mar', '28-mar', _date_type(2026, 3, 28)),
+        ('night_sun_29mar', '29-mar', _date_type(2026, 3, 29)),
+        ('night_mon_30mar', '30-mar', _date_type(2026, 3, 30)),
+        ('night_tue_31mar', '31-mar', _date_type(2026, 3, 31)),
+        ('night_wed_1apr',  '1-apr',  _date_type(2026, 4,  1)),
+        ('night_thu_2apr',  '2-apr',  _date_type(2026, 4,  2)),
+        ('night_fri_3apr',  '3-apr',  _date_type(2026, 4,  3)),
+        ('night_sat_4apr',  '4-apr',  _date_type(2026, 4,  4)),
+    ]
+
+    # Titolo pivot
+    ws_pivot.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(PIVOT_NIGHTS)+2)
+    tc = ws_pivot.cell(row=1, column=1, value=f'CONFIRMED vs BY CONTRACT — {hotel_name.upper()}')
+    tc.font = Font(name='Calibri', bold=True, size=13, color='1F3864')
+    tc.alignment = center_p
+    ws_pivot.row_dimensions[1].height = 24
+
+    # Header date
+    ws_pivot.cell(row=2, column=1, value='').border = thin_p
+    ws_pivot.cell(row=2, column=2, value='Voce').border = thin_p
+    ws_pivot.cell(row=2, column=2).font = hdr_font
+    ws_pivot.cell(row=2, column=2).fill = hdr_fill
+    ws_pivot.cell(row=2, column=2).alignment = center_p
+    for ci, (_, label, _) in enumerate(PIVOT_NIGHTS, 3):
+        c = ws_pivot.cell(row=2, column=ci, value=label)
+        c.font = hdr_font; c.fill = hdr_fill
+        c.alignment = center_p; c.border = thin_p
+    ws_pivot.row_dimensions[2].height = 18
+
+    # Conta confirmed per notte (no CXL)
+    active_rows = [r for r in rows if not r.is_cxl]
+    confirmed   = [sum(1 for r in active_rows if getattr(r, nf)) for nf, _, _ in PIVOT_NIGHTS]
+
+    # Carica contratti
+    contracts   = {str(c.date): c.rooms for c in
+                   HotelContract.query.filter_by(hotel=hotel_name).all()}
+    contract    = [contracts.get(str(d), 0) for _, _, d in PIVOT_NIGHTS]
+    delta       = [confirmed[i] - contract[i] for i in range(len(PIVOT_NIGHTS))]
+
+    rows_data = [
+        ('CONFIRMED', confirmed, PatternFill('solid', start_color='DBEAFE')),
+        ('BY CONTRACT', contract, PatternFill('solid', start_color='EDE9FE')),
+        ('DELTA', delta, None),
+    ]
+
+    for ri, (label, values, bg) in enumerate(rows_data, 3):
+        ws_pivot.cell(row=ri, column=1, value='').border = thin_p
+        lc = ws_pivot.cell(row=ri, column=2, value=label)
+        lc.font = tot_font; lc.border = thin_p; lc.alignment = left_p
+        if bg:
+            lc.fill = bg
+        for ci, val in enumerate(values, 3):
+            c = ws_pivot.cell(row=ri, column=ci, value=val if val else None)
+            c.border = thin_p; c.alignment = center_p
+            c.font = tot_font if label != 'DELTA' else Font(name='Calibri', size=10,
+                bold=True,
+                color='CC0000' if (val < 0) else ('00AA00' if val > 0 else '888888'))
+            if bg:
+                c.fill = bg
+        ws_pivot.row_dimensions[ri].height = 16
+
+    ws_pivot.column_dimensions['A'].width = 2
+    ws_pivot.column_dimensions['B'].width = 14
+    for ci in range(3, len(PIVOT_NIGHTS) + 3):
+        ws_pivot.column_dimensions[get_column_letter(ci)].width = 10
+
+    # ── Foglio 2: Rooming List ────────────────────────────────────────────────
+    ws = wb.create_sheet('Rooming List')
+
+    hdr_font  = Font(name='Calibri', bold=True, color='FFFFFF', size=10)
+    hdr_fill  = PatternFill('solid', start_color='1F3864')
+    norm_font = Font(name='Calibri', size=10, color='000000')
+    green_fill  = PatternFill('solid', start_color='C6EFCE')
+    yellow_fill = PatternFill('solid', start_color='FFEB9C')
+    red_fill    = PatternFill('solid', start_color='FFC7CE')
+    center = Alignment(horizontal='center', vertical='center')
+    left   = Alignment(horizontal='left',   vertical='center')
+    thin   = Border(left=Side(style='thin'), right=Side(style='thin'),
+                    top=Side(style='thin'),  bottom=Side(style='thin'))
 
     # Riga 1 — Titolo
     ws.merge_cells(start_row=1, start_column=1,
@@ -261,30 +367,35 @@ def build_hotel_excel(hotel_name, rows, diff, batch_id, prev_batch_id):
         c.border    = thin
     ws.row_dimensions[3].height = 20
 
-    rows_sorted = sorted(rows,
-                         key=lambda r: (str(r.last_name or '').upper(),
-                                        str(r.first_name or '').upper()))
+    def sort_key(r):
+        if r.is_cxl:
+            group = 2
+        elif r.change_date or (r.latest_changes and str(r.latest_changes).strip()):
+            group = 1
+        else:
+            group = 0
+        return (group, str(r.last_name or '').upper(), str(r.first_name or '').upper())
+
+    rows_sorted = sorted(rows, key=sort_key)
 
     for rn, row in enumerate(rows_sorted, 4):
-        ref        = row.internal_reference or f'__noref_{row.last_name}_{row.first_name}'
-        is_new     = diff.get(ref) == ['NEW']
-        is_changed = ref in diff and diff[ref] != ['NEW']
+        ref = row.internal_reference or f'__noref_{row.last_name}_{row.first_name}'
         is_cxl     = row.is_cxl
+        is_changed = row.change_date or (row.latest_changes and str(row.latest_changes).strip())
+
+        if is_cxl:
+            row_fill = red_fill
+        elif is_changed:
+            row_fill = yellow_fill
+        else:
+            row_fill = green_fill
 
         for col, (field, _) in enumerate(EXPORT_COLS, 1):
             c        = ws.cell(row=rn, column=col, value=cell_val(field, row))
             c.border = thin
             c.alignment = left
-            if is_cxl:
-                c.font = cxl_font
-            elif is_new:
-                c.font = norm_font
-                c.fill = new_fill
-            elif is_changed and field in diff.get(ref, []):
-                c.font = norm_font
-                c.fill = diff_fill
-            else:
-                c.font = norm_font
+            c.font = norm_font
+            c.fill = row_fill
         ws.row_dimensions[rn].height = 15
 
     for col, (field, _) in enumerate(EXPORT_COLS, 1):
@@ -329,16 +440,69 @@ def index():
 @rooming_bp.route('/upload', methods=['POST'])
 
 def upload():
+    import re as _re
+    from datetime import date as _date
+
     f = request.files.get('file')
     if not f or not f.filename.endswith('.xlsx'):
         flash('Seleziona un file .xlsx valido.', 'error')
         return redirect(url_for('rooming.index'))
+
+    # Leggi file_timestamp dai metadati del file Excel
+    file_ts = None
+    try:
+        import openpyxl as _opx
+        from io import BytesIO as _BytesIO
+        raw_bytes = f.read()
+        wb_meta = _opx.load_workbook(_BytesIO(raw_bytes), read_only=True)
+        props = wb_meta.properties
+        file_ts = props.modified or props.created
+        wb_meta.close()
+        f.seek(0)
+    except Exception:
+        f.seek(0)
 
     try:
         df = pd.read_excel(f, sheet_name='RL', header=0)
     except Exception as e:
         flash(f'Errore lettura file: {e}', 'error')
         return redirect(url_for('rooming.index'))
+
+    def parse_latest_changes(text):
+        """Estrae (change_type, change_date) da latest_changes."""
+        if not text or str(text).strip().lower() in ('nan', ''):
+            return None, None
+        t = str(text).strip()
+        # Pattern: TIPO - DD.MM.YYYY o TIPO - DD/MM/YYYY
+        m = _re.match(r'^([A-Za-z\s]+?)\s*[-–]\s*(\d{2}[./]\d{2}[./]\d{4})', t)
+        if not m:
+            return 'OTHER', None
+        raw_type = m.group(1).strip().upper()
+        raw_date = m.group(2).replace('/', '.')
+        # Normalizza tipo
+        if 'CXL' in raw_type:
+            ctype = 'CXL'
+        elif 'NEW HOTEL' in raw_type:
+            ctype = 'NEW HOTEL'
+        elif 'NEW BILLING' in raw_type:
+            ctype = 'NEW BILLING'
+        elif 'NIGHTS' in raw_type or 'NIGHT' in raw_type:
+            ctype = 'NIGHTS CHANGE'
+        elif 'NAME' in raw_type:
+            ctype = 'NAME CHANGE'
+        elif 'NEW' in raw_type:
+            ctype = 'NEW'
+        elif 'OTHER' in raw_type:
+            ctype = 'OTHER'
+        else:
+            ctype = raw_type[:50]
+        # Parsa data
+        try:
+            parts = raw_date.split('.')
+            cdate = _date(int(parts[2]), int(parts[1]), int(parts[0]))
+        except Exception:
+            cdate = None
+        return ctype, cdate
 
     batch_id = make_batch_id(f.filename)
     inserted = 0
@@ -351,10 +515,16 @@ def upload():
             skipped += 1
             continue
 
-        obj = RoomingList(import_batch=batch_id)
+        obj = RoomingList(import_batch=batch_id, file_timestamp=file_ts)
         for col_idx, field in COL_MAP.items():
             raw = row.iloc[col_idx] if col_idx < len(row) else None
             setattr(obj, field, clean_value(field, raw))
+
+        # Deriva change_type e change_date da latest_changes
+        ctype, cdate = parse_latest_changes(obj.latest_changes)
+        obj.change_type = ctype
+        obj.change_date = cdate
+
         db.session.add(obj)
         inserted += 1
 
@@ -378,6 +548,21 @@ def batch_detail(batch_id):
         h = r.hotel or 'SENZA HOTEL'
         hotels.setdefault(h, []).append(r)
 
+    # Raggruppa modifiche per hotel: {hotel: [(change_type, change_date, count), ...]}
+    hotel_changes = {}
+    for h, hrows in hotels.items():
+        counts = {}
+        for r in hrows:
+            if r.change_type:
+                date_str = r.change_date.strftime('%d/%m') if r.change_date else '?'
+                key = (r.change_type, date_str)
+                counts[key] = counts.get(key, 0) + 1
+        # Ordina per data
+        hotel_changes[h] = sorted(
+            [(ct, cd, n) for (ct, cd), n in counts.items()],
+            key=lambda x: x[1]
+        )
+
     # Batch precedente per diff
     all_batches = get_batches()
     batch_ids   = [b[0] for b in all_batches]
@@ -396,6 +581,7 @@ def batch_detail(batch_id):
     return render_template('batch_detail.html',
                            batch_id=batch_id,
                            hotels=hotels,
+                           hotel_changes=hotel_changes,
                            diff=diff,
                            prev_batch=prev_batch)
 
@@ -467,6 +653,121 @@ def export_all(batch_id):
                      as_attachment=True,
                      download_name=f'RoomingList_ALL_{ts}.zip',
                      mimetype='application/zip')
+
+
+@rooming_bp.route('/report-category/<path:batch_id>', methods=['POST'])
+def report_category(batch_id):
+    """Excel con partecipanti filtrati per company_category, raggruppati per hotel."""
+    from sqlalchemy import or_
+    categories = request.form.getlist('categories')
+    if not categories:
+        flash('Seleziona almeno una categoria.', 'error')
+        return redirect(url_for('rooming.batch_detail', batch_id=batch_id))
+
+    # Gestisce blank separatamente
+    conditions = []
+    for cat in categories:
+        if cat == '__blank__':
+            conditions.append(RoomingList.company_category == None)
+        else:
+            conditions.append(RoomingList.company_category == cat)
+
+    rows = RoomingList.query.filter_by(import_batch=batch_id)\
+                            .filter(or_(*conditions))\
+                            .order_by(RoomingList.hotel, RoomingList.last_name,
+                                      RoomingList.first_name).all()
+
+    # Ordina per gruppo: invariati, modificati, CXL — dentro ogni hotel
+    def _cat_sort(r):
+        group = 1 if r.is_cxl else 0
+        return (r.hotel or '', group,
+                str(r.last_name or '').upper(),
+                str(r.first_name or '').upper())
+
+    rows = sorted(rows, key=_cat_sort)
+
+    if not rows:
+        flash('Nessun partecipante trovato per le categorie selezionate.', 'error')
+        return redirect(url_for('rooming.batch_detail', batch_id=batch_id))
+
+    cat_labels = [c if c != '__blank__' else '(blank)' for c in categories]
+    title_str  = ' · '.join(cat_labels)
+
+    wb  = openpyxl.Workbook()
+    ws  = wb.active
+    ws.title = 'Report'
+
+    hdr_font  = Font(name='Calibri', bold=True, color='FFFFFF', size=10)
+    hdr_fill  = PatternFill('solid', start_color='1F3864')
+    norm_font = Font(name='Calibri', size=10)
+    green_fill  = PatternFill('solid', start_color='C6EFCE')
+    yellow_fill = PatternFill('solid', start_color='FFEB9C')
+    red_fill    = PatternFill('solid', start_color='FFC7CE')
+    center = Alignment(horizontal='center', vertical='center')
+    left   = Alignment(horizontal='left',   vertical='center')
+    thin   = Border(left=Side(style='thin'), right=Side(style='thin'),
+                    top=Side(style='thin'),  bottom=Side(style='thin'))
+
+    n_cols = len(EXPORT_COLS)
+
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
+    tc = ws.cell(row=1, column=1, value=f'REPORT — {title_str.upper()}')
+    tc.font = Font(name='Calibri', bold=True, size=14, color='1F3864')
+    tc.alignment = center
+    ws.row_dimensions[1].height = 26
+
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=n_cols)
+    ts_str = datetime.now().strftime('%d/%m/%Y %H:%M')
+    ws.cell(row=2, column=1,
+            value=f'Generato il {ts_str}  |  {len(rows)} partecipanti'
+            ).font = Font(name='Calibri', size=9, italic=True)
+    ws.row_dimensions[2].height = 14
+
+    current_hotel = None
+    row_num = 3
+
+    for r in rows:
+        hotel = r.hotel or 'SENZA HOTEL'
+        if hotel != current_hotel:
+            current_hotel = hotel
+            ws.merge_cells(start_row=row_num, start_column=1,
+                           end_row=row_num, end_column=n_cols)
+            hc = ws.cell(row=row_num, column=1, value=hotel.upper())
+            hc.font = Font(name='Calibri', bold=True, size=11, color='FFFFFF')
+            hc.fill = PatternFill('solid', start_color='2F5496')
+            hc.alignment = left
+            ws.row_dimensions[row_num].height = 20
+            row_num += 1
+            for col, (field, label) in enumerate(EXPORT_COLS, 1):
+                c = ws.cell(row=row_num, column=col, value=label)
+                c.font = hdr_font; c.fill = hdr_fill
+                c.alignment = center; c.border = thin
+            ws.row_dimensions[row_num].height = 18
+            row_num += 1
+
+        is_cxl    = r.is_cxl
+        is_changed = r.change_date or (r.latest_changes and str(r.latest_changes).strip())
+        row_fill = red_fill if is_cxl else (yellow_fill if is_changed else green_fill)
+
+        for col, (field, _) in enumerate(EXPORT_COLS, 1):
+            c = ws.cell(row=row_num, column=col, value=cell_val(field, r))
+            c.font = norm_font; c.fill = row_fill
+            c.alignment = left; c.border = thin
+        ws.row_dimensions[row_num].height = 15
+        row_num += 1
+
+    for col, (field, _) in enumerate(EXPORT_COLS, 1):
+        ws.column_dimensions[get_column_letter(col)].width = COL_WIDTHS.get(field, 14)
+    ws.freeze_panes = 'A3'
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    safe = title_str.replace(' ', '_').replace('/', '-')[:30]
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return send_file(buf, as_attachment=True,
+                     download_name=f'Report_{safe}_{ts}.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
 @rooming_bp.route('/api/pivot/<path:batch_id>')
@@ -665,6 +966,13 @@ ALL_COLS = [
     ('title',                'Title'),
     ('last_name',            'Last Name'),
     ('first_name',           'First Name'),
+    ('comment',              'Comment'),
+    ('email',                'Email'),
+    ('phone',                'Phone'),
+    ('billing',              'Billing'),
+    ('upgrade',              'Upgrade'),
+    ('check_in',             'Check In'),
+    ('check_out',            'Check Out'),
     ('company_name',         'Company'),
     ('company_country',      'Country'),
     ('job_position',         'Job Position'),
@@ -709,6 +1017,9 @@ ALL_COLS = [
     ('is_parent_manager',    'Parent Mgr'),
     ('registered_colleagues','Colleagues'),
     ('latest_changes',       'Latest Changes'),
+    ('change_type',          'Change Type'),
+    ('change_date',          'Change Date'),
+    ('file_timestamp',       'File Timestamp'),
 ]
 
 @rooming_bp.route('/export-custom/<path:batch_id>')
@@ -836,6 +1147,18 @@ def api_export_custom(batch_id):
                     filtered.append(r)
                     break
         all_rows = filtered
+
+    # Ordinamento: prima invariati, poi modificati, in fondo CXL
+    def _sort_key(r):
+        if r.is_cxl:
+            group = 2
+        elif r.change_date or (r.latest_changes and str(r.latest_changes).strip()):
+            group = 1
+        else:
+            group = 0
+        return (group, str(r.last_name or '').upper(), str(r.first_name or '').upper())
+
+    all_rows = sorted(all_rows, key=_sort_key)
 
     # ── Elaborazione spouse runtime ───────────────────────────────────────
     spouse_notes  = {}   # id riga spouse -> "Spouse of <nome>"
@@ -1091,7 +1414,257 @@ def upload_contracts():
     return redirect(url_for('rooming.index'))
 
 
+@rooming_bp.route('/api/categories/<path:batch_id>')
+def api_categories(batch_id):
+    """Ritorna le categorie azienda presenti nel batch, ordinate."""
+    cats = db.session.execute(db.text("""
+        SELECT DISTINCT company_category
+        FROM rooming_list
+        WHERE import_batch = :bid
+        ORDER BY company_category NULLS LAST
+    """), {'bid': batch_id}).fetchall()
+    categories = [r[0] for r in cats]
+    return jsonify({'categories': categories})
+
+
+@rooming_bp.route('/api/billings/<path:batch_id>')
+def api_billings(batch_id):
+    """Ritorna i valori billing presenti nel batch, ordinati."""
+    rows = db.session.execute(db.text("""
+        SELECT DISTINCT billing
+        FROM rooming_list
+        WHERE import_batch = :bid
+        ORDER BY billing NULLS LAST
+    """), {'bid': batch_id}).fetchall()
+    return jsonify({'billings': [r[0] for r in rows]})
+
+
+@rooming_bp.route('/report-billing/<path:batch_id>', methods=['POST'])
+def report_billing(batch_id):
+    """Excel con partecipanti filtrati per billing, raggruppati per hotel."""
+    from sqlalchemy import or_
+    billings = request.form.getlist('billings')
+    if not billings:
+        flash('Seleziona almeno un valore billing.', 'error')
+        return redirect(url_for('rooming.batch_detail', batch_id=batch_id))
+
+    conditions = []
+    for b in billings:
+        if b == '__blank__':
+            conditions.append(RoomingList.billing == None)
+        else:
+            conditions.append(RoomingList.billing == b)
+
+    rows = RoomingList.query.filter_by(import_batch=batch_id)\
+                            .filter(or_(*conditions))\
+                            .order_by(RoomingList.hotel, RoomingList.last_name,
+                                      RoomingList.first_name).all()
+
+    if not rows:
+        flash('Nessun partecipante trovato per i valori billing selezionati.', 'error')
+        return redirect(url_for('rooming.batch_detail', batch_id=batch_id))
+
+    def _sort(r):
+        return (r.hotel or '', 1 if r.is_cxl else 0,
+                str(r.last_name or '').upper(), str(r.first_name or '').upper())
+    rows = sorted(rows, key=_sort)
+
+    bill_labels = [b if b != '__blank__' else '(blank)' for b in billings]
+    title_str   = ' · '.join(bill_labels)
+
+    wb  = openpyxl.Workbook()
+    ws  = wb.active
+    ws.title = 'Report Billing'
+
+    hdr_font  = Font(name='Calibri', bold=True, color='FFFFFF', size=10)
+    hdr_fill  = PatternFill('solid', start_color='1F3864')
+    norm_font = Font(name='Calibri', size=10)
+    green_fill  = PatternFill('solid', start_color='C6EFCE')
+    yellow_fill = PatternFill('solid', start_color='FFEB9C')
+    red_fill    = PatternFill('solid', start_color='FFC7CE')
+    center = Alignment(horizontal='center', vertical='center')
+    left   = Alignment(horizontal='left',   vertical='center')
+    thin   = Border(left=Side(style='thin'), right=Side(style='thin'),
+                    top=Side(style='thin'),  bottom=Side(style='thin'))
+
+    n_cols = len(EXPORT_COLS)
+
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
+    tc = ws.cell(row=1, column=1, value=f'REPORT BILLING — {title_str.upper()}')
+    tc.font = Font(name='Calibri', bold=True, size=14, color='1F3864')
+    tc.alignment = center
+    ws.row_dimensions[1].height = 26
+
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=n_cols)
+    ts_str = datetime.now().strftime('%d/%m/%Y %H:%M')
+    ws.cell(row=2, column=1,
+            value=f'Generato il {ts_str}  |  {len(rows)} partecipanti'
+            ).font = Font(name='Calibri', size=9, italic=True)
+    ws.row_dimensions[2].height = 14
+
+    current_hotel = None
+    row_num = 3
+
+    for r in rows:
+        hotel = r.hotel or 'SENZA HOTEL'
+        if hotel != current_hotel:
+            current_hotel = hotel
+            ws.merge_cells(start_row=row_num, start_column=1,
+                           end_row=row_num, end_column=n_cols)
+            hc = ws.cell(row=row_num, column=1, value=hotel.upper())
+            hc.font = Font(name='Calibri', bold=True, size=11, color='FFFFFF')
+            hc.fill = PatternFill('solid', start_color='2F5496')
+            hc.alignment = left
+            ws.row_dimensions[row_num].height = 20
+            row_num += 1
+            for col, (field, label) in enumerate(EXPORT_COLS, 1):
+                c = ws.cell(row=row_num, column=col, value=label)
+                c.font = hdr_font; c.fill = hdr_fill
+                c.alignment = center; c.border = thin
+            ws.row_dimensions[row_num].height = 18
+            row_num += 1
+
+        is_changed = r.change_date or (r.latest_changes and str(r.latest_changes).strip())
+        row_fill = red_fill if r.is_cxl else (yellow_fill if is_changed else green_fill)
+
+        for col, (field, _) in enumerate(EXPORT_COLS, 1):
+            c = ws.cell(row=row_num, column=col, value=cell_val(field, r))
+            c.font = norm_font; c.fill = row_fill
+            c.alignment = left; c.border = thin
+        ws.row_dimensions[row_num].height = 15
+        row_num += 1
+
+    for col, (field, _) in enumerate(EXPORT_COLS, 1):
+        ws.column_dimensions[get_column_letter(col)].width = COL_WIDTHS.get(field, 14)
+    ws.freeze_panes = 'A3'
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    safe = title_str.replace(' ', '_').replace('/', '-')[:30]
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return send_file(buf, as_attachment=True,
+                     download_name=f'Report_Billing_{safe}_{ts}.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@rooming_bp.route('/api/arrivals/<path:batch_id>')
+def api_arrivals(batch_id):
+    rows = db.session.execute(db.text("""
+        SELECT DISTINCT arrival_mode
+        FROM rooming_list
+        WHERE import_batch = :bid
+        ORDER BY arrival_mode NULLS LAST
+    """), {'bid': batch_id}).fetchall()
+    return jsonify({'arrivals': [r[0] for r in rows]})
+
+
+@rooming_bp.route('/report-arrival/<path:batch_id>', methods=['POST'])
+def report_arrival(batch_id):
+    from sqlalchemy import or_
+    arrivals = request.form.getlist('arrivals')
+    if not arrivals:
+        flash('Seleziona almeno un valore.', 'error')
+        return redirect(url_for('rooming.batch_detail', batch_id=batch_id))
+
+    conditions = [RoomingList.arrival_mode == None if a == '__blank__'
+                  else RoomingList.arrival_mode == a for a in arrivals]
+
+    rows = RoomingList.query.filter_by(import_batch=batch_id)\
+                            .filter(or_(*conditions))\
+                            .order_by(RoomingList.hotel, RoomingList.last_name,
+                                      RoomingList.first_name).all()
+
+    if not rows:
+        flash('Nessun partecipante trovato.', 'error')
+        return redirect(url_for('rooming.batch_detail', batch_id=batch_id))
+
+    def _sort(r):
+        return (r.hotel or '', 1 if r.is_cxl else 0,
+                str(r.last_name or '').upper(), str(r.first_name or '').upper())
+    rows = sorted(rows, key=_sort)
+
+    labels    = [a if a != '__blank__' else '(blank)' for a in arrivals]
+    title_str = ' · '.join(labels)
+
+    wb  = openpyxl.Workbook()
+    ws  = wb.active
+    ws.title = 'Report Arrival'
+
+    hdr_font  = Font(name='Calibri', bold=True, color='FFFFFF', size=10)
+    hdr_fill  = PatternFill('solid', start_color='1F3864')
+    norm_font = Font(name='Calibri', size=10)
+    green_fill  = PatternFill('solid', start_color='C6EFCE')
+    yellow_fill = PatternFill('solid', start_color='FFEB9C')
+    red_fill    = PatternFill('solid', start_color='FFC7CE')
+    center = Alignment(horizontal='center', vertical='center')
+    left   = Alignment(horizontal='left',   vertical='center')
+    thin   = Border(left=Side(style='thin'), right=Side(style='thin'),
+                    top=Side(style='thin'),  bottom=Side(style='thin'))
+
+    n_cols = len(EXPORT_COLS)
+
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
+    tc = ws.cell(row=1, column=1, value=f'REPORT ARRIVAL — {title_str.upper()}')
+    tc.font = Font(name='Calibri', bold=True, size=14, color='1F3864')
+    tc.alignment = center
+    ws.row_dimensions[1].height = 26
+
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=n_cols)
+    ts_str = datetime.now().strftime('%d/%m/%Y %H:%M')
+    ws.cell(row=2, column=1,
+            value=f'Generato il {ts_str}  |  {len(rows)} partecipanti'
+            ).font = Font(name='Calibri', size=9, italic=True)
+    ws.row_dimensions[2].height = 14
+
+    current_hotel = None
+    row_num = 3
+
+    for r in rows:
+        hotel = r.hotel or 'SENZA HOTEL'
+        if hotel != current_hotel:
+            current_hotel = hotel
+            ws.merge_cells(start_row=row_num, start_column=1,
+                           end_row=row_num, end_column=n_cols)
+            hc = ws.cell(row=row_num, column=1, value=hotel.upper())
+            hc.font = Font(name='Calibri', bold=True, size=11, color='FFFFFF')
+            hc.fill = PatternFill('solid', start_color='2F5496')
+            hc.alignment = left
+            ws.row_dimensions[row_num].height = 20
+            row_num += 1
+            for col, (field, label) in enumerate(EXPORT_COLS, 1):
+                c = ws.cell(row=row_num, column=col, value=label)
+                c.font = hdr_font; c.fill = hdr_fill
+                c.alignment = center; c.border = thin
+            ws.row_dimensions[row_num].height = 18
+            row_num += 1
+
+        is_changed = r.change_date or (r.latest_changes and str(r.latest_changes).strip())
+        row_fill = red_fill if r.is_cxl else (yellow_fill if is_changed else green_fill)
+
+        for col, (field, _) in enumerate(EXPORT_COLS, 1):
+            c = ws.cell(row=row_num, column=col, value=cell_val(field, r))
+            c.font = norm_font; c.fill = row_fill
+            c.alignment = left; c.border = thin
+        ws.row_dimensions[row_num].height = 15
+        row_num += 1
+
+    for col, (field, _) in enumerate(EXPORT_COLS, 1):
+        ws.column_dimensions[get_column_letter(col)].width = COL_WIDTHS.get(field, 14)
+    ws.freeze_panes = 'A3'
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    safe = title_str.replace(' ', '_').replace('/', '-')[:30]
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return send_file(buf, as_attachment=True,
+                     download_name=f'Report_Arrival_{safe}_{ts}.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
 @rooming_bp.route('/api/occupancy/<path:batch_id>')
+
 def api_occupancy(batch_id):
     """Ritorna JSON con CONFIRMED vs BY CONTRACT per hotel x data."""
     from models.models import HotelContract

@@ -196,6 +196,13 @@ body {
 }
 .btn-export-hotel:hover { background: var(--primary-h); }
 
+/* ── Change badges ────────────────────────────────────────────────────────── */
+.hotel-changes { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:10px; }
+.change-badge {
+    background: #FEF9C3; color: #854D0E; border: 1px solid #FDE047;
+    border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: 500;
+}
+
 /* ── Hotel section ────────────────────────────────────────────────────────── */
 .hotel-section-header {
     display: flex; align-items: center; justify-content: space-between;
