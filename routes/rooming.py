@@ -1284,6 +1284,235 @@ def api_export_custom(batch_id):
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
+
+# ── Preview report API (unified) ─────────────────────────────────────────────
+
+PREVIEW_COLS = [
+    # Sequenza standard (uguale a EXPORT_COLS)
+    ('title',                     'Title'),
+    ('last_name',                 'Last Name'),
+    ('first_name',                'First Name'),
+    ('comment',                   'Comment'),
+    ('email',                     'Email'),
+    ('phone',                     'Phone'),
+    ('billing',                   'Billing'),
+    ('upgrade',                   'Upgrade'),
+    ('arrival_mode',              'Arrival Mode'),
+    ('check_in',                  'Check In'),
+    ('check_out',                 'Check Out'),
+    ('need_visa',                 'Visa?'),
+    ('visa_birth_date',           'Birth Date'),
+    ('visa_birth_place',          'Birth Place'),
+    ('visa_passport',             'Passport N.'),
+    ('visa_delivery_date',        'Doc Issued'),
+    ('visa_expiration_date',      'Doc Expiry'),
+    ('latest_changes',            'Latest Changes'),
+    ('change_type',               'Change Type'),
+    ('change_date',               'Change Date'),
+    # Campi aggiuntivi in coda
+    ('registration_state',        'Stato'),
+    ('hotel',                     'Hotel'),
+    ('company_name',              'Azienda'),
+    ('company_country',           'Paese'),
+    ('company_category',          'Categoria'),
+    ('company_subcategory',       'Sub-Categoria'),
+    ('job_position',              'Job Position'),
+    ('nexus_bd',                  'NEXUS BD'),
+    ('need_smooth_checkin',       'Smooth CI'),
+    ('diet_restrictions',         'Dieta'),
+    ('internal_reference',        'Internal Ref'),
+    ('participant_number',        'N. Partecipante'),
+    ('visa_company_address',      'Indirizzo azienda'),
+    ('status_vp_bd',              'VP/BD'),
+    ('status_organisator',        'Organisator'),
+    ('status_board_nai',          'Board NAI'),
+    ('status_climate_day',        'Climate Day'),
+    ('status_prospective_council','Prospective Council'),
+    ('status_spouse',             'Spouse'),
+    ('night_sat_28mar',           'Notte 28/03'),
+    ('night_sun_29mar',           'Notte 29/03'),
+    ('night_mon_30mar',           'Notte 30/03'),
+    ('night_tue_31mar',           'Notte 31/03'),
+    ('night_wed_1apr',            'Notte 01/04'),
+    ('night_thu_2apr',            'Notte 02/04'),
+    ('night_fri_3apr',            'Notte 03/04'),
+    ('night_sat_4apr',            'Notte 04/04'),
+    ('delegation_key',            'Delegation Key'),
+    ('internal_parent_reference', 'Parent Ref'),
+    ('prospective_response',      'Prospective Response'),
+]
+
+@rooming_bp.route('/api/preview-report/<path:batch_id>', methods=['POST'])
+def api_preview_report(batch_id):
+    from sqlalchemy import or_, and_
+    data     = request.get_json()
+    rtype    = data.get('type')
+    values   = data.get('values', [])
+    conditions_raw = data.get('conditions', [])
+    logic    = data.get('logic', 'AND')
+
+    q = RoomingList.query.filter_by(import_batch=batch_id)
+
+    if rtype == 'category':
+        conds = [RoomingList.company_category == None if v == '__blank__'
+                 else RoomingList.company_category == v for v in values]
+        q = q.filter(or_(*conds))
+    elif rtype == 'billing':
+        conds = [RoomingList.billing == None if v == '__blank__'
+                 else RoomingList.billing == v for v in values]
+        q = q.filter(or_(*conds))
+    elif rtype == 'arrival':
+        conds = [RoomingList.arrival_mode == None if v == '__blank__'
+                 else RoomingList.arrival_mode == v for v in values]
+        q = q.filter(or_(*conds))
+    elif rtype == 'query':
+        conds = []
+        for c in conditions_raw:
+            field = c.get('field', '')
+            op    = c.get('op', 'eq')
+            val   = c.get('val', '')
+            col   = getattr(RoomingList, field, None)
+            if col is None:
+                continue
+            if op == 'eq':
+                conds.append(col == val)
+            elif op == 'neq':
+                conds.append(col != val)
+            elif op == 'contains':
+                conds.append(col.ilike(f'%{val}%'))
+            elif op == 'not_empty':
+                conds.append(col != None)
+            elif op == 'empty':
+                conds.append(col == None)
+        if conds:
+            q = q.filter(and_(*conds) if logic == 'AND' else or_(*conds))
+
+    rows = q.order_by(RoomingList.hotel, RoomingList.last_name,
+                      RoomingList.first_name).all()
+
+    def _sort(r):
+        return (r.hotel or '', 1 if r.is_cxl else 0,
+                str(r.last_name or '').upper())
+    rows = sorted(rows, key=_sort)
+
+    result = []
+    for r in rows:
+        row_data = {}
+        for field, label in PREVIEW_COLS:
+            row_data[label] = cell_val(field, r)
+        result.append(row_data)
+
+    return jsonify({'rows': result, 'total': len(result)})
+
+
+@rooming_bp.route('/report-query/<path:batch_id>', methods=['POST'])
+def report_query(batch_id):
+    """Excel da query libera."""
+    from sqlalchemy import or_, and_
+    import json as _json
+    conditions_raw = _json.loads(request.form.get('conditions', '[]'))
+    logic          = request.form.get('logic', 'AND')
+
+    q = RoomingList.query.filter_by(import_batch=batch_id)
+    conds = []
+    for c in conditions_raw:
+        field = c.get('field', '')
+        op    = c.get('op', 'eq')
+        val   = c.get('val', '')
+        col   = getattr(RoomingList, field, None)
+        if col is None:
+            continue
+        if op == 'eq':       conds.append(col == val)
+        elif op == 'neq':    conds.append(col != val)
+        elif op == 'contains': conds.append(col.ilike(f'%{val}%'))
+        elif op == 'not_empty': conds.append(col != None)
+        elif op == 'empty':  conds.append(col == None)
+    if conds:
+        q = q.filter(and_(*conds) if logic == 'AND' else or_(*conds))
+
+    rows = q.order_by(RoomingList.hotel, RoomingList.last_name,
+                      RoomingList.first_name).all()
+
+    def _sort(r):
+        return (r.hotel or '', 1 if r.is_cxl else 0,
+                str(r.last_name or '').upper(), str(r.first_name or '').upper())
+    rows = sorted(rows, key=_sort)
+
+    if not rows:
+        flash('Nessun risultato.', 'error')
+        return redirect(url_for('rooming.batch_detail', batch_id=batch_id))
+
+    wb  = openpyxl.Workbook()
+    ws  = wb.active
+    ws.title = 'Query Result'
+
+    hdr_font  = Font(name='Calibri', bold=True, color='FFFFFF', size=10)
+    hdr_fill  = PatternFill('solid', start_color='1F3864')
+    norm_font = Font(name='Calibri', size=10)
+    green_fill  = PatternFill('solid', start_color='C6EFCE')
+    yellow_fill = PatternFill('solid', start_color='FFEB9C')
+    red_fill    = PatternFill('solid', start_color='FFC7CE')
+    center = Alignment(horizontal='center', vertical='center')
+    left   = Alignment(horizontal='left',   vertical='center')
+    thin   = Border(left=Side(style='thin'), right=Side(style='thin'),
+                    top=Side(style='thin'),  bottom=Side(style='thin'))
+
+    n_cols = len(PREVIEW_COLS)
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
+    tc = ws.cell(row=1, column=1, value='QUERY RESULT')
+    tc.font = Font(name='Calibri', bold=True, size=14, color='1F3864')
+    tc.alignment = center
+    ws.row_dimensions[1].height = 26
+
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=n_cols)
+    ts_str = datetime.now().strftime('%d/%m/%Y %H:%M')
+    ws.cell(row=2, column=1,
+            value=f'Generato il {ts_str}  |  {len(rows)} partecipanti'
+            ).font = Font(name='Calibri', size=9, italic=True)
+    ws.row_dimensions[2].height = 14
+
+    current_hotel = None
+    row_num = 3
+    for r in rows:
+        hotel = r.hotel or 'SENZA HOTEL'
+        if hotel != current_hotel:
+            current_hotel = hotel
+            ws.merge_cells(start_row=row_num, start_column=1,
+                           end_row=row_num, end_column=n_cols)
+            hc = ws.cell(row=row_num, column=1, value=hotel.upper())
+            hc.font = Font(name='Calibri', bold=True, size=11, color='FFFFFF')
+            hc.fill = PatternFill('solid', start_color='2F5496')
+            hc.alignment = left
+            ws.row_dimensions[row_num].height = 20
+            row_num += 1
+            for col, (field, label) in enumerate(PREVIEW_COLS, 1):
+                c = ws.cell(row=row_num, column=col, value=label)
+                c.font = hdr_font; c.fill = hdr_fill
+                c.alignment = center; c.border = thin
+            ws.row_dimensions[row_num].height = 18
+            row_num += 1
+
+        is_changed = r.change_date or (r.latest_changes and str(r.latest_changes).strip())
+        row_fill = red_fill if r.is_cxl else (yellow_fill if is_changed else green_fill)
+        for col, (field, _) in enumerate(PREVIEW_COLS, 1):
+            c = ws.cell(row=row_num, column=col, value=cell_val(field, r))
+            c.font = norm_font; c.fill = row_fill
+            c.alignment = left; c.border = thin
+        ws.row_dimensions[row_num].height = 15
+        row_num += 1
+
+    for col, (field, _) in enumerate(PREVIEW_COLS, 1):
+        ws.column_dimensions[get_column_letter(col)].width = COL_WIDTHS.get(field, 14)
+    ws.freeze_panes = 'A3'
+
+    buf = io.BytesIO()
+    wb.save(buf); buf.seek(0)
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return send_file(buf, as_attachment=True,
+                     download_name=f'Query_{ts}.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
 @rooming_bp.route('/api/save-config', methods=['POST'])
 def api_save_config():
     import json
@@ -1487,7 +1716,7 @@ def report_billing(batch_id):
     thin   = Border(left=Side(style='thin'), right=Side(style='thin'),
                     top=Side(style='thin'),  bottom=Side(style='thin'))
 
-    n_cols = len(EXPORT_COLS)
+    n_cols = len(PREVIEW_COLS)
 
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
     tc = ws.cell(row=1, column=1, value=f'REPORT BILLING — {title_str.upper()}')
@@ -1517,7 +1746,7 @@ def report_billing(batch_id):
             hc.alignment = left
             ws.row_dimensions[row_num].height = 20
             row_num += 1
-            for col, (field, label) in enumerate(EXPORT_COLS, 1):
+            for col, (field, label) in enumerate(PREVIEW_COLS, 1):
                 c = ws.cell(row=row_num, column=col, value=label)
                 c.font = hdr_font; c.fill = hdr_fill
                 c.alignment = center; c.border = thin
@@ -1527,14 +1756,14 @@ def report_billing(batch_id):
         is_changed = r.change_date or (r.latest_changes and str(r.latest_changes).strip())
         row_fill = red_fill if r.is_cxl else (yellow_fill if is_changed else green_fill)
 
-        for col, (field, _) in enumerate(EXPORT_COLS, 1):
+        for col, (field, _) in enumerate(PREVIEW_COLS, 1):
             c = ws.cell(row=row_num, column=col, value=cell_val(field, r))
             c.font = norm_font; c.fill = row_fill
             c.alignment = left; c.border = thin
         ws.row_dimensions[row_num].height = 15
         row_num += 1
 
-    for col, (field, _) in enumerate(EXPORT_COLS, 1):
+    for col, (field, _) in enumerate(PREVIEW_COLS, 1):
         ws.column_dimensions[get_column_letter(col)].width = COL_WIDTHS.get(field, 14)
     ws.freeze_panes = 'A3'
 
@@ -1602,7 +1831,7 @@ def report_arrival(batch_id):
     thin   = Border(left=Side(style='thin'), right=Side(style='thin'),
                     top=Side(style='thin'),  bottom=Side(style='thin'))
 
-    n_cols = len(EXPORT_COLS)
+    n_cols = len(PREVIEW_COLS)
 
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
     tc = ws.cell(row=1, column=1, value=f'REPORT ARRIVAL — {title_str.upper()}')
@@ -1632,7 +1861,7 @@ def report_arrival(batch_id):
             hc.alignment = left
             ws.row_dimensions[row_num].height = 20
             row_num += 1
-            for col, (field, label) in enumerate(EXPORT_COLS, 1):
+            for col, (field, label) in enumerate(PREVIEW_COLS, 1):
                 c = ws.cell(row=row_num, column=col, value=label)
                 c.font = hdr_font; c.fill = hdr_fill
                 c.alignment = center; c.border = thin
@@ -1642,14 +1871,14 @@ def report_arrival(batch_id):
         is_changed = r.change_date or (r.latest_changes and str(r.latest_changes).strip())
         row_fill = red_fill if r.is_cxl else (yellow_fill if is_changed else green_fill)
 
-        for col, (field, _) in enumerate(EXPORT_COLS, 1):
+        for col, (field, _) in enumerate(PREVIEW_COLS, 1):
             c = ws.cell(row=row_num, column=col, value=cell_val(field, r))
             c.font = norm_font; c.fill = row_fill
             c.alignment = left; c.border = thin
         ws.row_dimensions[row_num].height = 15
         row_num += 1
 
-    for col, (field, _) in enumerate(EXPORT_COLS, 1):
+    for col, (field, _) in enumerate(PREVIEW_COLS, 1):
         ws.column_dimensions[get_column_letter(col)].width = COL_WIDTHS.get(field, 14)
     ws.freeze_panes = 'A3'
 

@@ -10,104 +10,14 @@
 
 {% if prev_batch %}
 <div class="diff-legend">
-    <span class="legend-item new">🟢 Nuovo</span>
-    <span class="legend-item changed">🟡 Modificato</span>
-    <span class="legend-item cxl">🔴 CXL</span>
+    <span class="legend-item">🟢 Invariato</span>
+    <span class="legend-item">🟡 Modificato</span>
+    <span class="legend-item">🔴 CXL</span>
     <span class="legend-sep">Confronto con: <span class="mono">{{ prev_batch[16:] if prev_batch|length > 16 else prev_batch }}</span></span>
 </div>
 {% endif %}
 
-<!-- Azioni batch -->
-<div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-    <a href="{{ url_for('rooming.export_all', batch_id=batch_id) }}"
-       class="btn-sm btn-export">⬇ ZIP — tutti gli hotel</a>
-    <button class="btn-sm btn-export" onclick="togglePivot()">📊 Pivot notti x hotel</button>
-    <a href="{{ url_for('rooming.export_pivot', batch_id=batch_id) }}"
-       class="btn-sm btn-export">⬇ Pivot Excel</a>
-    <button class="btn-sm btn-export" onclick="toggleOccupancy()" style="border-color:#7C3AED;color:#7C3AED">🏨 Confirmed vs Contract</button>
-    <button class="btn-sm btn-export" onclick="openCategoryModal()" style="border-color:#B8860B;color:#B8860B">📋 Report per Categoria</button>
-    <button class="btn-sm btn-export" onclick="openBillingModal()" style="border-color:#0369A1;color:#0369A1">💳 Report per Billing</button>
-    <button class="btn-sm btn-export" onclick="openArrivalModal()" style="border-color:#059669;color:#059669">✈ Report per Arrivo</button>
-    <a href="{{ url_for('rooming.export_custom', batch_id=batch_id) }}"
-       class="btn-primary" style="font-size:13px;padding:6px 14px">⚙ Export Dinamico</a>
-</div>
-
-<!-- Modale selezione categorie -->
-<div id="categoryModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
-    <div style="background:#fff;border-radius:10px;padding:28px 32px;max-width:440px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18)">
-        <h3 style="font-size:16px;font-weight:600;color:var(--primary);margin-bottom:14px">Report per Categoria</h3>
-        <p style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Seleziona una o più categorie:</p>
-        <div style="margin-bottom:10px">
-            <button type="button" class="btn-sm" onclick="toggleAllCategories()">tutto/niente</button>
-        </div>
-        <form method="POST" action="{{ url_for('rooming.report_category', batch_id=batch_id) }}" id="categoryForm">
-            <div id="categoryList" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:18px">
-                <!-- popolato da JS -->
-            </div>
-            <div style="display:flex;gap:10px;justify-content:flex-end">
-                <button type="button" class="btn-sm" onclick="closeCategoryModal()">Annulla</button>
-                <button type="submit" class="btn-primary">⬇ Scarica Excel</button>
-            </div>
-        </form>
-    </div>
-</div>
-
-<!-- Occupancy: Confirmed vs By Contract -->
-<div id="occupancySection" style="display:none;margin-bottom:20px">
-    <div class="card">
-        <h2 style="margin-bottom:12px">Confirmed vs By Contract</h2>
-        <div id="occupancyContent">
-            <p style="color:var(--text-muted);font-size:13px">Caricamento…</p>
-        </div>
-    </div>
-</div>
-
-<!-- Modale selezione billing -->
-<div id="billingModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
-    <div style="background:#fff;border-radius:10px;padding:28px 32px;max-width:440px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18)">
-        <h3 style="font-size:16px;font-weight:600;color:var(--primary);margin-bottom:14px">Report per Billing</h3>
-        <p style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Seleziona uno o più valori:</p>
-        <div style="margin-bottom:10px">
-            <button type="button" class="btn-sm" onclick="toggleAllBillings()">tutto/niente</button>
-        </div>
-        <form method="POST" action="{{ url_for('rooming.report_billing', batch_id=batch_id) }}" id="billingForm">
-            <div id="billingList" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:18px">
-            </div>
-            <div style="display:flex;gap:10px;justify-content:flex-end">
-                <button type="button" class="btn-sm" onclick="closeBillingModal()">Annulla</button>
-                <button type="submit" class="btn-primary">⬇ Scarica Excel</button>
-            </div>
-        </form>
-    </div>
-</div>
-<!-- Modale selezione arrival -->
-<div id="arrivalModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
-    <div style="background:#fff;border-radius:10px;padding:28px 32px;max-width:440px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18)">
-        <h3 style="font-size:16px;font-weight:600;color:var(--primary);margin-bottom:14px">Report per Modalità Arrivo</h3>
-        <p style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Seleziona uno o più valori:</p>
-        <div style="margin-bottom:10px">
-            <button type="button" class="btn-sm" onclick="toggleAllArrivals()">tutto/niente</button>
-        </div>
-        <form method="POST" action="{{ url_for('rooming.report_arrival', batch_id=batch_id) }}">
-            <div id="arrivalList" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:18px"></div>
-            <div style="display:flex;gap:10px;justify-content:flex-end">
-                <button type="button" class="btn-sm" onclick="closeArrivalModal()">Annulla</button>
-                <button type="submit" class="btn-primary">⬇ Scarica Excel</button>
-            </div>
-        </form>
-    </div>
-</div>
-
-<div id="pivotSection" style="display:none;margin-bottom:20px">
-    <div class="card">
-        <h2 style="margin-bottom:12px">Pivot — Notti per Hotel</h2>
-        <div id="pivotContent">
-            <p style="color:var(--text-muted);font-size:13px">Caricamento…</p>
-        </div>
-    </div>
-</div>
-
-<!-- Riepilogo hotel -->
+<!-- 1. Card hotel -->
 <div class="hotels-grid">
 {% for hotel, rows in hotels.items() | sort %}
     {% set active = rows | selectattr('is_cxl', 'equalto', false) | list | length %}
@@ -131,328 +41,518 @@
 {% endfor %}
 </div>
 
-<!-- Tabella partecipanti per hotel -->
-{% for hotel, rows in hotels.items() | sort %}
-<div class="card hotel-section">
-    <div class="hotel-section-header">
-        <h2>{{ hotel }}</h2>
-        <a href="{{ url_for('rooming.export_hotel', batch_id=batch_id, hotel_name=hotel) }}"
-           class="btn-sm btn-export">⬇ Excel</a>
-    </div>
+<!-- 2. Barra azioni -->
+<div style="background:var(--surface);border:0.5px solid var(--border);border-radius:var(--radius);padding:16px 20px;margin-bottom:20px">
+    <div style="display:grid;grid-template-columns:auto 1fr auto;gap:0;border:0.5px solid var(--border);border-radius:8px;overflow:hidden">
 
-    <div class="table-scroll">
-    <table class="table table-sm">
-        <thead>
-            <tr>
-                <th>Stato</th>
-                <th>Cognome</th>
-                <th>Nome</th>
-                <th>Azienda</th>
-                <th>Paese</th>
-                <th>Categoria</th>
-                <th>Notti</th>
-                <th>Arrivo</th>
-                <th>Dieta</th>
-                <th>Commento</th>
-            </tr>
-        </thead>
-        <tbody>
-        {% for row in rows | sort(attribute='last_name') %}
-            {% set ref = row.internal_reference or ('__noref_' ~ row.last_name ~ '_' ~ row.first_name) %}
-            {% set is_new     = diff.get(ref) == ['NEW'] %}
-            {% set is_changed = ref in diff and diff[ref] != ['NEW'] %}
-            <tr class="{{ 'row-cxl' if row.is_cxl else ('row-new' if is_new else ('row-changed' if is_changed else '')) }}">
-                <td>
-                    <span class="badge-state badge-{{ (row.registration_state or 'unknown') | lower }}">
-                        {{ row.registration_state or '—' }}
-                    </span>
-                </td>
-                <td class="fw-medium">{{ row.last_name or '—' }}</td>
-                <td>{{ row.first_name or '—' }}</td>
-                <td>{{ row.company_name or '—' }}</td>
-                <td>{{ row.company_country or '—' }}</td>
-                <td><span class="cat-pill">{{ row.company_category or '—' }}</span></td>
-                <td class="nights-cell">
-                    {% if row.night_sat_28mar %}<span class="night" title="Sab 28/03">28</span>{% endif %}
-                    {% if row.night_sun_29mar %}<span class="night" title="Dom 29/03">29</span>{% endif %}
-                    {% if row.night_mon_30mar %}<span class="night" title="Lun 30/03">30</span>{% endif %}
-                    {% if row.night_tue_31mar %}<span class="night" title="Mar 31/03">31</span>{% endif %}
-                    {% if row.night_wed_1apr  %}<span class="night" title="Mer 01/04">1</span>{% endif %}
-                    {% if row.night_thu_2apr  %}<span class="night" title="Gio 02/04">2</span>{% endif %}
-                    {% if row.night_fri_3apr  %}<span class="night" title="Ven 03/04">3</span>{% endif %}
-                    {% if row.night_sat_4apr  %}<span class="night" title="Sab 04/04">4</span>{% endif %}
-                    {% if row.night_no_need   %}<span class="night night-none" title="No need">—</span>{% endif %}
-                </td>
-                <td>{{ row.arrival_mode or '—' }}</td>
-                <td>{{ row.diet_restrictions or '' }}</td>
-                <td class="comment-cell">{{ row.comment or '' }}</td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
+        <div style="padding:14px 18px;border-right:0.5px solid var(--border)">
+            <p style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin:0 0 10px">Analisi</p>
+            <div style="display:flex;flex-direction:column;gap:6px">
+                <button onclick="showPivot()" style="background:#E6F1FB;color:#0C447C;border:none;border-radius:6px;padding:8px 14px;font-size:13px;text-align:left;cursor:pointer;font-family:inherit;white-space:nowrap">📊 Pivot notti × hotel</button>
+                <button onclick="showOccupancy()" style="background:#EEEDFE;color:#3C3489;border:none;border-radius:6px;padding:8px 14px;font-size:13px;text-align:left;cursor:pointer;font-family:inherit;white-space:nowrap">🏨 Confirmed vs Contract</button>
+            </div>
+        </div>
+
+        <div style="padding:14px 18px;border-right:0.5px solid var(--border)">
+            <p style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin:0 0 10px">Report</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+                <button onclick="openCategoryModal()" style="background:#FAEEDA;color:#633806;border:none;border-radius:6px;padding:8px 12px;font-size:12px;text-align:left;cursor:pointer;font-family:inherit;white-space:nowrap">📋 Categoria</button>
+                <button onclick="openBillingModal()" style="background:#E6F1FB;color:#0C447C;border:none;border-radius:6px;padding:8px 12px;font-size:12px;text-align:left;cursor:pointer;font-family:inherit;white-space:nowrap">💳 Billing</button>
+                <button onclick="openArrivalModal()" style="background:#EAF3DE;color:#27500A;border:none;border-radius:6px;padding:8px 12px;font-size:12px;text-align:left;cursor:pointer;font-family:inherit;white-space:nowrap">✈ Arrivo</button>
+                <button onclick="showQueryBuilder()" style="background:#FCEBEB;color:#791F1F;border:none;border-radius:6px;padding:8px 12px;font-size:12px;text-align:left;cursor:pointer;font-family:inherit;white-space:nowrap">🔍 Query libera</button>
+            </div>
+        </div>
+
+        <div style="padding:14px 18px">
+            <p style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.6px;margin:0 0 10px">Export</p>
+            <div style="display:flex;flex-direction:column;gap:6px">
+                <a href="{{ url_for('rooming.export_all', batch_id=batch_id) }}" style="background:var(--bg);color:var(--text);border:0.5px solid var(--border);border-radius:6px;padding:8px 14px;font-size:13px;text-decoration:none;white-space:nowrap;display:block">⬇ ZIP tutti gli hotel</a>
+                <a href="{{ url_for('rooming.export_pivot', batch_id=batch_id) }}" style="background:var(--bg);color:var(--text);border:0.5px solid var(--border);border-radius:6px;padding:8px 14px;font-size:13px;text-decoration:none;white-space:nowrap;display:block">⬇ Pivot Excel</a>
+                <a href="{{ url_for('rooming.export_custom', batch_id=batch_id) }}" style="background:#1F3864;color:#fff;border:none;border-radius:6px;padding:8px 14px;font-size:13px;text-decoration:none;white-space:nowrap;display:block">⚙ Export Dinamico</a>
+            </div>
+        </div>
+
     </div>
 </div>
-{% endfor %}
 
-<!-- Export tutto -->
-<div class="export-all-bar" style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
-    <a href="{{ url_for('rooming.export_all', batch_id=batch_id) }}"
-       class="btn-primary">⬇ ZIP — tutti gli hotel</a>
-    <a href="{{ url_for('rooming.export_custom', batch_id=batch_id) }}"
-       class="btn-primary" style="background:#2563EB">⚙ Export Dinamico</a>
+<!-- 3. Query builder -->
+<div class="card" id="queryBuilder" style="display:none;margin-bottom:20px">
+    <h2 style="margin-bottom:14px">🔍 Query Libera</h2>
+    <div id="queryRows"></div>
+    <div style="margin:10px 0">
+        <button class="btn-sm" onclick="addQueryRow()">+ Aggiungi condizione</button>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:12px">
+        <label style="font-size:13px"><input type="radio" name="queryLogic" value="AND" checked> AND</label>
+        <label style="font-size:13px"><input type="radio" name="queryLogic" value="OR"> OR</label>
+        <button class="btn-primary" onclick="runQuery()" style="margin-left:auto">▶ Esegui query</button>
+        <button class="btn-sm" onclick="document.getElementById('queryBuilder').style.display='none'">Chiudi</button>
+    </div>
+</div>
+
+<!-- 4. Area preview -->
+<div class="card" id="previewArea" style="display:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:10px">
+        <div>
+            <h2 id="previewTitle" style="margin:0">Preview</h2>
+            <span id="previewCount" style="font-size:12px;color:var(--text-muted)"></span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+            <button id="previewDownloadBtn" class="btn-primary" style="font-size:13px;padding:6px 14px;display:none"
+                    onclick="downloadCurrentReport()">⬇ Scarica Excel</button>
+            <button class="btn-sm" onclick="closePreview()">✕ Chiudi</button>
+        </div>
+    </div>
+    <div id="previewContent" style="overflow-x:auto">
+        <p style="color:var(--text-muted);font-size:13px">Caricamento…</p>
+    </div>
+</div>
+
+<!-- Modali -->
+<div id="categoryModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:10px;padding:28px 32px;max-width:440px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+        <h3 style="font-size:16px;font-weight:600;color:var(--primary);margin-bottom:14px">Report per Categoria</h3>
+        <div style="margin-bottom:10px"><button type="button" class="btn-sm" onclick="toggleAllCategories()">tutto/niente</button></div>
+        <form id="categoryForm">
+            <div id="categoryList" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:18px"></div>
+            <div style="display:flex;gap:10px;justify-content:flex-end">
+                <button type="button" class="btn-sm" onclick="closeCategoryModal()">Annulla</button>
+                <button type="button" class="btn-primary" onclick="runCategoryReport()">▶ Anteprima + Excel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="billingModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:10px;padding:28px 32px;max-width:440px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+        <h3 style="font-size:16px;font-weight:600;color:var(--primary);margin-bottom:14px">Report per Billing</h3>
+        <div style="margin-bottom:10px"><button type="button" class="btn-sm" onclick="toggleAllBillings()">tutto/niente</button></div>
+        <form id="billingForm">
+            <div id="billingList" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:18px"></div>
+            <div style="display:flex;gap:10px;justify-content:flex-end">
+                <button type="button" class="btn-sm" onclick="closeBillingModal()">Annulla</button>
+                <button type="button" class="btn-primary" onclick="runBillingReport()">▶ Anteprima + Excel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="arrivalModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:10px;padding:28px 32px;max-width:440px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+        <h3 style="font-size:16px;font-weight:600;color:var(--primary);margin-bottom:14px">Report per Modalità Arrivo</h3>
+        <div style="margin-bottom:10px"><button type="button" class="btn-sm" onclick="toggleAllArrivals()">tutto/niente</button></div>
+        <form id="arrivalForm">
+            <div id="arrivalList" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:18px"></div>
+            <div style="display:flex;gap:10px;justify-content:flex-end">
+                <button type="button" class="btn-sm" onclick="closeArrivalModal()">Annulla</button>
+                <button type="button" class="btn-primary" onclick="runArrivalReport()">▶ Anteprima + Excel</button>
+            </div>
+        </form>
+    </div>
 </div>
 
 <style>
-.pivot-table { border-collapse:collapse; font-size:12px; width:100%; }
-.pivot-table th {
-    background:var(--primary); color:#fff; font-weight:600;
-    padding:8px 12px; text-align:center; border:1px solid #fff;
-    white-space:nowrap;
+.actions-bar {
+    display:flex; gap:16px; flex-wrap:wrap; margin-bottom:16px;
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius); padding:12px 16px;
 }
-.pivot-table th.night-col { text-align:left; min-width:220px; }
-.pivot-table td {
-    padding:7px 12px; border:1px solid var(--border);
-    text-align:center; font-variant-numeric:tabular-nums;
+.actions-group { display:flex; flex-direction:column; gap:6px; }
+.actions-label { font-size:10px; font-weight:700; color:var(--text-muted);
+    text-transform:uppercase; letter-spacing:.5px; }
+.actions-group > div { display:flex; gap:6px; flex-wrap:wrap; }
+.actions-group { flex-direction:row; align-items:center; gap:8px; }
+.actions-group:not(:last-child) { padding-right:16px; border-right:1px solid var(--border); }
+.btn-action {
+    font-size:12px; padding:5px 11px; border-radius:5px; cursor:pointer;
+    border:1px solid var(--ac, var(--border)); color:var(--ac, var(--text));
+    background:var(--surface); font-family:inherit; text-decoration:none;
+    display:inline-flex; align-items:center; gap:4px; transition:all .15s;
 }
-.pivot-table td.night-label { text-align:left; font-weight:500; background:#F8FAFC; }
-.pivot-table td.zero { color:#CCC; }
-.pivot-table tr.total-row td {
-    background:var(--primary); color:#fff; font-weight:700;
+.btn-action:hover { background:color-mix(in srgb, var(--ac, var(--border)) 10%, white); }
+
+.query-row {
+    display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;
 }
-.pivot-table td.grand-total {
-    background:#1a3070; color:#fff; font-weight:700; font-size:13px;
+.query-row select, .query-row input {
+    padding:6px 10px; border:1px solid var(--border); border-radius:5px;
+    font-size:13px; font-family:inherit;
 }
-.pivot-table tbody tr:hover td { background:#EFF6FF; }
-.pivot-table tbody tr:hover td.night-label { background:#DBEAFE; }
-.pivot-table tbody tr.total-row:hover td { background:var(--primary); }
+.query-row select { min-width:160px; }
+.query-row .op-select { min-width:120px; }
+.query-row .val-input { min-width:180px; flex:1; }
+
+.preview-table { width:100%; border-collapse:collapse; font-size:12px; }
+.preview-table th { background:#F8FAFC; font-weight:600; font-size:11px;
+    color:var(--text-muted); text-transform:uppercase; letter-spacing:.4px;
+    padding:8px 10px; border-bottom:2px solid var(--border); white-space:nowrap; }
+.preview-table td { padding:7px 10px; border-bottom:1px solid var(--border); white-space:nowrap; }
+.preview-table tr.r-green td { background:#C6EFCE; }
+.preview-table tr.r-yellow td { background:#FFEB9C; }
+.preview-table tr.r-red td { background:#FFC7CE; }
 </style>
 
 <script>
 const BATCH_ID_PIVOT = {{ batch_id | tojson }};
-let pivotLoaded = false;
 
-// ── Category modal ────────────────────────────────────────────────────────
+// Colonne disponibili per query builder
+const QUERY_FIELDS = [
+    {f:'title',                     l:'Title'},
+    {f:'last_name',                 l:'Last Name'},
+    {f:'first_name',                l:'First Name'},
+    {f:'comment',                   l:'Comment'},
+    {f:'email',                     l:'Email'},
+    {f:'phone',                     l:'Phone'},
+    {f:'billing',                   l:'Billing'},
+    {f:'upgrade',                   l:'Upgrade'},
+    {f:'arrival_mode',              l:'Arrival Mode'},
+    {f:'need_visa',                 l:'Visa?'},
+    {f:'visa_birth_date',           l:'Birth Date'},
+    {f:'visa_birth_place',          l:'Birth Place'},
+    {f:'visa_passport',             l:'Passport N.'},
+    {f:'visa_delivery_date',        l:'Doc Issued'},
+    {f:'visa_expiration_date',      l:'Doc Expiry'},
+    {f:'latest_changes',            l:'Latest Changes'},
+    {f:'change_type',               l:'Change Type'},
+    {f:'change_date',               l:'Change Date'},
+    {f:'registration_state',        l:'Stato'},
+    {f:'hotel',                     l:'Hotel'},
+    {f:'company_name',              l:'Azienda'},
+    {f:'company_country',           l:'Paese'},
+    {f:'company_category',          l:'Categoria'},
+    {f:'company_subcategory',       l:'Sub-Categoria'},
+    {f:'job_position',              l:'Job Position'},
+    {f:'nexus_bd',                  l:'NEXUS BD'},
+    {f:'need_smooth_checkin',       l:'Smooth CI'},
+    {f:'diet_restrictions',         l:'Dieta'},
+    {f:'internal_reference',        l:'Internal Ref'},
+    {f:'participant_number',        l:'N. Partecipante'},
+    {f:'status_vp_bd',              l:'VP/BD'},
+    {f:'status_organisator',        l:'Organisator'},
+    {f:'status_board_nai',          l:'Board NAI'},
+    {f:'status_climate_day',        l:'Climate Day'},
+    {f:'status_prospective_council',l:'Prospective Council'},
+    {f:'status_spouse',             l:'Spouse'},
+    {f:'is_parent_manager',         l:'Parent Manager'},
+    {f:'night_sat_28mar',           l:'Notte 28/03'},
+    {f:'night_sun_29mar',           l:'Notte 29/03'},
+    {f:'night_mon_30mar',           l:'Notte 30/03'},
+    {f:'night_tue_31mar',           l:'Notte 31/03'},
+    {f:'night_wed_1apr',            l:'Notte 01/04'},
+    {f:'night_thu_2apr',            l:'Notte 02/04'},
+    {f:'night_fri_3apr',            l:'Notte 03/04'},
+    {f:'night_sat_4apr',            l:'Notte 04/04'},
+    {f:'delegation_key',            l:'Delegation Key'},
+    {f:'internal_parent_reference', l:'Parent Ref'},
+    {f:'prospective_response',      l:'Prospective Response'},
+    {f:'visa_company_address',      l:'Indirizzo azienda'},
+];
+const OPERATORS = [
+    {v:'eq',       l:'='},
+    {v:'neq',      l:'≠'},
+    {v:'contains', l:'contiene'},
+    {v:'not_empty',l:'non vuoto'},
+    {v:'empty',    l:'vuoto'},
+];
+
+// ── Stato corrente report ─────────────────────────────────────────────────
+let currentReportType = null;  // 'pivot'|'occupancy'|'category'|'billing'|'arrival'|'query'
+let currentReportParams = {};
+
+// ── Preview area ──────────────────────────────────────────────────────────
+function showPreview(title, html, count, reportType, params) {
+    currentReportType   = reportType;
+    currentReportParams = params || {};
+    document.getElementById('previewTitle').textContent   = title;
+    document.getElementById('previewCount').textContent   = count ? `${count} partecipanti` : '';
+    document.getElementById('previewContent').innerHTML   = html;
+    document.getElementById('previewArea').style.display  = 'block';
+    const dlBtn = document.getElementById('previewDownloadBtn');
+    dlBtn.style.display = (reportType && reportType !== 'pivot' && reportType !== 'occupancy') ? '' : 'none';
+    document.getElementById('previewArea').scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+function closePreview() {
+    document.getElementById('previewArea').style.display = 'none';
+    currentReportType = null;
+}
+
+async function downloadCurrentReport() {
+    if (!currentReportType) return;
+    const btn = document.getElementById('previewDownloadBtn');
+    btn.textContent = '⏳…'; btn.disabled = true;
+
+    let url, method = 'POST', body;
+    if (currentReportType === 'category') {
+        url  = `/report-category/${BATCH_ID_PIVOT}`;
+        body = new FormData();
+        currentReportParams.values.forEach(v => body.append('categories', v));
+    } else if (currentReportType === 'billing') {
+        url  = `/report-billing/${BATCH_ID_PIVOT}`;
+        body = new FormData();
+        currentReportParams.values.forEach(v => body.append('billings', v));
+    } else if (currentReportType === 'arrival') {
+        url  = `/report-arrival/${BATCH_ID_PIVOT}`;
+        body = new FormData();
+        currentReportParams.values.forEach(v => body.append('arrivals', v));
+    } else if (currentReportType === 'query') {
+        url  = `/report-query/${BATCH_ID_PIVOT}`;
+        method = 'POST';
+        body = new FormData();
+        body.append('conditions', JSON.stringify(currentReportParams.conditions));
+        body.append('logic', currentReportParams.logic);
+    }
+
+    const res  = await fetch(url, { method, body });
+    const blob = await res.blob();
+    const a    = document.createElement('a');
+    a.href     = URL.createObjectURL(blob);
+    a.download = `Report_${currentReportType}_${new Date().toISOString().slice(0,10)}.xlsx`;
+    a.click();
+    btn.textContent = '⬇ Scarica Excel'; btn.disabled = false;
+}
+
+// ── Pivot ─────────────────────────────────────────────────────────────────
+async function showPivot() {
+    showPreview('📊 Pivot — Notti per Hotel', '<p style="color:var(--text-muted)">Caricamento…</p>', null, null);
+    const res  = await fetch(`/api/pivot/${BATCH_ID_PIVOT}`);
+    const data = await res.json();
+    if (data.error) { document.getElementById('previewContent').innerHTML = `<p style="color:red">${data.error}</p>`; return; }
+    const { hotels, nights, pivot } = data;
+    let html = '<table class="preview-table"><thead><tr><th>Notte</th>';
+    hotels.forEach(h => { html += `<th>${h}</th>`; });
+    html += '<th>Totale</th></tr></thead><tbody>';
+    nights.forEach(n => {
+        const tot = hotels.reduce((s,h) => s+(pivot[n.field][h]||0),0);
+        html += `<tr><td style="font-weight:500">${n.label}</td>`;
+        hotels.forEach(h => { const v=pivot[n.field][h]||0; html += v?`<td>${v}</td>`:`<td style="color:#ccc">—</td>`; });
+        html += `<td style="font-weight:700;background:#D9E1F2">${tot||'—'}</td></tr>`;
+    });
+    html += '<tr style="background:var(--primary);color:#fff"><td style="font-weight:700">Grand Total</td>';
+    let gt=0; hotels.forEach(h=>{ const c=nights.reduce((s,n)=>s+(pivot[n.field][h]||0),0); gt+=c; html+=`<td>${c||'—'}</td>`; });
+    html += `<td style="font-weight:700">${gt}</td></tr></tbody></table>`;
+    document.getElementById('previewContent').innerHTML = html;
+    document.getElementById('previewTitle').textContent = '📊 Pivot — Notti per Hotel';
+}
+
+// ── Occupancy ─────────────────────────────────────────────────────────────
+async function showOccupancy() {
+    showPreview('🏨 Confirmed vs By Contract', '<p style="color:var(--text-muted)">Caricamento…</p>', null, null);
+    const res  = await fetch(`/api/occupancy/${BATCH_ID_PIVOT}`);
+    const data = await res.json();
+    if (!data.has_contracts) {
+        document.getElementById('previewContent').innerHTML =
+            '<p style="color:var(--warn)">⚠ Nessun contratto caricato.</p>'; return;
+    }
+    const { hotels, dates, data: occ } = data;
+    let html = '<table class="preview-table"><thead><tr><th>Hotel</th><th>Voce</th>';
+    dates.forEach(d => { html += `<th>${d}</th>`; });
+    html += '</tr></thead><tbody>';
+    hotels.forEach(hotel => {
+        const conf=occ[hotel].confirmed, cont=occ[hotel].contract;
+        html += `<tr><td rowspan="3" style="font-weight:600;vertical-align:middle">${hotel}</td><td>CONFIRMED</td>`;
+        conf.forEach(v => { html += v?`<td>${v}</td>`:`<td style="color:#ccc">—</td>`; }); html += '</tr>';
+        html += '<tr><td style="color:#7C3AED;font-weight:500">BY CONTRACT</td>';
+        cont.forEach(v => { html += v?`<td style="color:#7C3AED">${v}</td>`:`<td style="color:#ccc">—</td>`; }); html += '</tr>';
+        html += '<tr><td style="color:var(--text-muted);font-size:11px">DELTA</td>';
+        conf.forEach((v,i) => {
+            const d=v-cont[i], c=d<0?'var(--danger)':d>0?'var(--success)':'var(--text-muted)', s=d>0?'+':'';
+            html += (d!==0||cont[i]>0)?`<td style="color:${c};font-weight:600">${s}${d}</td>`:`<td style="color:#ccc">—</td>`;
+        }); html += '</tr>';
+    });
+    html += '</tbody></table>';
+    document.getElementById('previewContent').innerHTML = html;
+}
+
+// ── Helpers preview tabella partecipanti ──────────────────────────────────
+// Ordine colonne output — uguale a EXPORT_COLS + extra in coda
+const OUTPUT_COLS = [
+    'Title','Last Name','First Name','Comment','Email','Phone',
+    'Billing','Upgrade','Arrival Mode','Check In','Check Out',
+    'Visa?','Birth Date','Birth Place','Passport N.','Doc Issued','Doc Expiry',
+    'Latest Changes','Change Type','Change Date',
+    'Stato','Hotel','Azienda','Paese','Categoria','Sub-Categoria',
+    'Job Position','NEXUS BD','Smooth CI','Dieta','Internal Ref',
+    'N. Partecipante','Indirizzo azienda','VP/BD','Organisator',
+    'Board NAI','Climate Day','Prospective Council','Spouse',
+    'Notte 28/03','Notte 29/03','Notte 30/03','Notte 31/03',
+    'Notte 01/04','Notte 02/04','Notte 03/04','Notte 04/04',
+    'Delegation Key','Parent Ref','Prospective Response',
+];
+
+function renderParticipantTable(rows) {
+    if (!rows.length) return '<p style="color:var(--text-muted)">Nessun risultato.</p>';
+    // Usa l'ordine definito, filtrando solo le colonne presenti nei dati
+    const available = new Set(Object.keys(rows[0]));
+    const cols = OUTPUT_COLS.filter(c => available.has(c));
+    let html = '<table class="preview-table"><thead><tr>';
+    cols.forEach(c => { html += `<th>${c}</th>`; });
+    html += '</tr></thead><tbody>';
+    rows.forEach(r => {
+        const stato  = r['Stato'] || '';
+        const chtype = r['Change Type'] || '';
+        const cls = stato === 'CXL' ? 'r-red' : (chtype ? 'r-yellow' : 'r-green');
+        html += `<tr class="${cls}">`;
+        cols.forEach(c => { html += `<td>${r[c]||''}</td>`; });
+        html += '</tr>';
+    });
+    html += '</tbody></table>';
+    return html;
+}
+
+// ── Category report ───────────────────────────────────────────────────────
 async function openCategoryModal() {
     const res  = await fetch(`/api/categories/${BATCH_ID_PIVOT}`);
     const data = await res.json();
     const list = document.getElementById('categoryList');
     list.innerHTML = '';
     data.categories.forEach(cat => {
-        const val   = cat === null ? '__blank__' : cat;
-        const label = cat === null ? '(blank)' : cat;
-        list.innerHTML += `
-            <label style="display:flex;align-items:center;gap:6px;font-size:13px;
-                background:var(--bg);border:1px solid var(--border);border-radius:5px;
-                padding:6px 10px;cursor:pointer;">
-                <input type="checkbox" name="categories" value="${val}" checked>
-                ${label}
-            </label>`;
+        const val=cat===null?'__blank__':cat, label=cat===null?'(blank)':cat;
+        list.innerHTML += `<label style="display:flex;align-items:center;gap:6px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:6px 10px;cursor:pointer;"><input type="checkbox" name="cat" value="${val}" checked>${label}</label>`;
     });
     document.getElementById('categoryModal').style.display = 'flex';
 }
+function closeCategoryModal() { document.getElementById('categoryModal').style.display='none'; }
+let allCatsChecked=true;
+function toggleAllCategories() { allCatsChecked=!allCatsChecked; document.querySelectorAll('#categoryList input').forEach(i=>i.checked=allCatsChecked); }
 
-function closeCategoryModal() {
-    document.getElementById('categoryModal').style.display = 'none';
-}
-
-let allCatsChecked = true;
-function toggleAllCategories() {
-    allCatsChecked = !allCatsChecked;
-    document.querySelectorAll('#categoryList input').forEach(i => {
-        i.checked = allCatsChecked;
+async function runCategoryReport() {
+    closeCategoryModal();
+    const vals = [...document.querySelectorAll('#categoryList input:checked')].map(i=>i.value);
+    if (!vals.length) return;
+    showPreview('📋 Report Categoria', '<p style="color:var(--text-muted)">Caricamento…</p>', null, 'category', {values: vals});
+    const res  = await fetch(`/api/preview-report/${BATCH_ID_PIVOT}`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({type:'category', values: vals})
     });
+    const data = await res.json();
+    document.getElementById('previewContent').innerHTML = renderParticipantTable(data.rows);
+    document.getElementById('previewCount').textContent = `${data.total} partecipanti`;
+    document.getElementById('previewDownloadBtn').style.display = '';
 }
 
-// Chiudi modale cliccando fuori
-document.addEventListener('click', e => {
-    if (e.target === document.getElementById('categoryModal')) closeCategoryModal();
-    if (e.target === document.getElementById('billingModal'))  closeBillingModal();
-    if (e.target === document.getElementById('arrivalModal'))  closeArrivalModal();
-});
-
-// ── Billing modal ─────────────────────────────────────────────────────────
+// ── Billing report ────────────────────────────────────────────────────────
 async function openBillingModal() {
     const res  = await fetch(`/api/billings/${BATCH_ID_PIVOT}`);
     const data = await res.json();
     const list = document.getElementById('billingList');
     list.innerHTML = '';
     data.billings.forEach(b => {
-        const val   = b === null ? '__blank__' : b;
-        const label = b === null ? '(blank)' : b;
-        list.innerHTML += `
-            <label style="display:flex;align-items:center;gap:6px;font-size:13px;
-                background:var(--bg);border:1px solid var(--border);border-radius:5px;
-                padding:6px 10px;cursor:pointer;">
-                <input type="checkbox" name="billings" value="${val}" checked>
-                ${label}
-            </label>`;
+        const val=b===null?'__blank__':b, label=b===null?'(blank)':b;
+        list.innerHTML += `<label style="display:flex;align-items:center;gap:6px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:6px 10px;cursor:pointer;"><input type="checkbox" name="bil" value="${val}" checked>${label}</label>`;
     });
     document.getElementById('billingModal').style.display = 'flex';
 }
+function closeBillingModal() { document.getElementById('billingModal').style.display='none'; }
+let allBillingsChecked=true;
+function toggleAllBillings() { allBillingsChecked=!allBillingsChecked; document.querySelectorAll('#billingList input').forEach(i=>i.checked=allBillingsChecked); }
 
-function closeBillingModal() {
-    document.getElementById('billingModal').style.display = 'none';
+async function runBillingReport() {
+    closeBillingModal();
+    const vals = [...document.querySelectorAll('#billingList input:checked')].map(i=>i.value);
+    if (!vals.length) return;
+    showPreview('💳 Report Billing', '<p style="color:var(--text-muted)">Caricamento…</p>', null, 'billing', {values: vals});
+    const res  = await fetch(`/api/preview-report/${BATCH_ID_PIVOT}`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({type:'billing', values: vals})
+    });
+    const data = await res.json();
+    document.getElementById('previewContent').innerHTML = renderParticipantTable(data.rows);
+    document.getElementById('previewCount').textContent = `${data.total} partecipanti`;
+    document.getElementById('previewDownloadBtn').style.display = '';
 }
 
-let allBillingsChecked = true;
-function toggleAllBillings() {
-    allBillingsChecked = !allBillingsChecked;
-    document.querySelectorAll('#billingList input').forEach(i => { i.checked = allBillingsChecked; });
-}
-
-// ── Arrival modal ─────────────────────────────────────────────────────────
+// ── Arrival report ────────────────────────────────────────────────────────
 async function openArrivalModal() {
     const res  = await fetch(`/api/arrivals/${BATCH_ID_PIVOT}`);
     const data = await res.json();
     const list = document.getElementById('arrivalList');
     list.innerHTML = '';
     data.arrivals.forEach(a => {
-        const val   = a === null ? '__blank__' : a;
-        const label = a === null ? '(blank)' : a;
-        list.innerHTML += `<label style="display:flex;align-items:center;gap:6px;font-size:13px;
-            background:var(--bg);border:1px solid var(--border);border-radius:5px;
-            padding:6px 10px;cursor:pointer;">
-            <input type="checkbox" name="arrivals" value="${val}" checked>${label}</label>`;
+        const val=a===null?'__blank__':a, label=a===null?'(blank)':a;
+        list.innerHTML += `<label style="display:flex;align-items:center;gap:6px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:6px 10px;cursor:pointer;"><input type="checkbox" name="arr" value="${val}" checked>${label}</label>`;
     });
     document.getElementById('arrivalModal').style.display = 'flex';
 }
-function closeArrivalModal() { document.getElementById('arrivalModal').style.display = 'none'; }
-let allArrivalsChecked = true;
-function toggleAllArrivals() {
-    allArrivalsChecked = !allArrivalsChecked;
-    document.querySelectorAll('#arrivalList input').forEach(i => { i.checked = allArrivalsChecked; });
-}
+function closeArrivalModal() { document.getElementById('arrivalModal').style.display='none'; }
+let allArrivalsChecked=true;
+function toggleAllArrivals() { allArrivalsChecked=!allArrivalsChecked; document.querySelectorAll('#arrivalList input').forEach(i=>i.checked=allArrivalsChecked); }
 
-
-async function togglePivot() {
-    const section = document.getElementById('pivotSection');
-    if (section.style.display === 'none') {
-        section.style.display = 'block';
-        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        if (!pivotLoaded) {
-            await loadPivot();
-            pivotLoaded = true;
-        }
-    } else {
-        section.style.display = 'none';
-    }
-}
-
-async function loadPivot() {
-    const res  = await fetch(`/api/pivot/${BATCH_ID_PIVOT}`);
+async function runArrivalReport() {
+    closeArrivalModal();
+    const vals = [...document.querySelectorAll('#arrivalList input:checked')].map(i=>i.value);
+    if (!vals.length) return;
+    showPreview('✈ Report Arrivo', '<p style="color:var(--text-muted)">Caricamento…</p>', null, 'arrival', {values: vals});
+    const res  = await fetch(`/api/preview-report/${BATCH_ID_PIVOT}`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({type:'arrival', values: vals})
+    });
     const data = await res.json();
-    if (data.error) {
-        document.getElementById('pivotContent').innerHTML =
-            `<p style="color:red">${data.error}</p>`;
-        return;
-    }
-
-    const { hotels, nights, pivot } = data;
-
-    let html = '<div style="overflow-x:auto"><table class="pivot-table"><thead><tr>';
-    html += '<th class="night-col">Notte</th>';
-    hotels.forEach(h => { html += `<th>${h}</th>`; });
-    html += '<th>Grand Total</th></tr></thead><tbody>';
-
-    nights.forEach(n => {
-        const rowTotal = hotels.reduce((s, h) => s + (pivot[n.field][h] || 0), 0);
-        html += '<tr>';
-        html += `<td class="night-label">${n.label}</td>`;
-        hotels.forEach(h => {
-            const val = pivot[n.field][h] || 0;
-            html += val
-                ? `<td>${val}</td>`
-                : `<td class="zero">—</td>`;
-        });
-        html += rowTotal
-            ? `<td style="font-weight:600;background:#D9E1F2">${rowTotal}</td>`
-            : `<td class="zero">—</td>`;
-        html += '</tr>';
-    });
-
-    // Grand Total row
-    html += '<tr class="total-row"><td class="night-label">Grand Total</td>';
-    let grandTotal = 0;
-    hotels.forEach(h => {
-        const colTotal = nights.reduce((s, n) => s + (pivot[n.field][h] || 0), 0);
-        grandTotal += colTotal;
-        html += `<td>${colTotal || '—'}</td>`;
-    });
-    html += `<td class="grand-total">${grandTotal}</td></tr>`;
-    html += '</tbody></table></div>';
-
-    document.getElementById('pivotContent').innerHTML = html;
+    document.getElementById('previewContent').innerHTML = renderParticipantTable(data.rows);
+    document.getElementById('previewCount').textContent = `${data.total} partecipanti`;
+    document.getElementById('previewDownloadBtn').style.display = '';
 }
 
-let occupancyLoaded = false;
-
-async function toggleOccupancy() {
-    const section = document.getElementById('occupancySection');
-    if (section.style.display === 'none') {
-        section.style.display = 'block';
-        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        if (!occupancyLoaded) {
-            await loadOccupancy();
-            occupancyLoaded = true;
-        }
-    } else {
-        section.style.display = 'none';
-    }
+// ── Query builder ─────────────────────────────────────────────────────────
+function showQueryBuilder() {
+    document.getElementById('queryBuilder').style.display = 'block';
+    document.getElementById('queryBuilder').scrollIntoView({behavior:'smooth'});
+    if (!document.querySelectorAll('.query-row').length) addQueryRow();
 }
 
-async function loadOccupancy() {
-    const res  = await fetch(`/api/occupancy/${BATCH_ID_PIVOT}`);
+function addQueryRow() {
+    const container = document.getElementById('queryRows');
+    const idx = container.children.length;
+    const fieldOpts = QUERY_FIELDS.map(f=>`<option value="${f.f}">${f.l}</option>`).join('');
+    const opOpts    = OPERATORS.map(o=>`<option value="${o.v}">${o.l}</option>`).join('');
+    const div = document.createElement('div');
+    div.className = 'query-row';
+    div.innerHTML = `
+        <select class="q-field" onchange="updateOpVisibility(this)">${fieldOpts}</select>
+        <select class="op-select q-op">${opOpts}</select>
+        <input class="val-input q-val" type="text" placeholder="valore…">
+        <button class="btn-sm" onclick="this.parentElement.remove()">✕</button>`;
+    container.appendChild(div);
+}
+
+function updateOpVisibility(sel) {
+    const op  = sel.closest('.query-row').querySelector('.q-op');
+    const val = sel.closest('.query-row').querySelector('.q-val');
+    const noVal = ['not_empty','empty'].includes(op.value);
+    val.style.display = noVal ? 'none' : '';
+}
+
+async function runQuery() {
+    const rows   = document.querySelectorAll('.query-row');
+    const logic  = document.querySelector('input[name="queryLogic"]:checked').value;
+    const conditions = [];
+    rows.forEach(row => {
+        const field = row.querySelector('.q-field').value;
+        const op    = row.querySelector('.q-op').value;
+        const val   = row.querySelector('.q-val').value.trim();
+        conditions.push({field, op, val});
+    });
+    if (!conditions.length) return;
+
+    currentReportType   = 'query';
+    currentReportParams = {conditions, logic};
+    showPreview('🔍 Query libera', '<p style="color:var(--text-muted)">Caricamento…</p>', null, 'query', {conditions, logic});
+
+    const res  = await fetch(`/api/preview-report/${BATCH_ID_PIVOT}`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({type:'query', conditions, logic})
+    });
     const data = await res.json();
-
-    if (!data.has_contracts) {
-        document.getElementById('occupancyContent').innerHTML =
-            '<p style="color:var(--warn);font-size:13px">⚠ Nessun contratto caricato. Vai nella home e carica il file contratti.</p>';
-        return;
-    }
-
-    const { hotels, dates, data: occ } = data;
-    let html = '<div style="overflow-x:auto"><table class="pivot-table"><thead><tr>';
-    html += '<th class="night-col" style="min-width:180px">Hotel</th>';
-    html += '<th style="min-width:110px">Voce</th>';
-    dates.forEach(d => { html += `<th>${d}</th>`; });
-    html += '</tr></thead><tbody>';
-
-    hotels.forEach(hotel => {
-        const conf = occ[hotel].confirmed;
-        const cont = occ[hotel].contract;
-
-        // Riga CONFIRMED
-        html += `<tr>
-            <td class="night-label" rowspan="3" style="font-weight:600;vertical-align:middle">${hotel}</td>
-            <td class="night-label">CONFIRMED</td>`;
-        conf.forEach(v => {
-            html += v ? `<td>${v}</td>` : `<td class="zero">—</td>`;
-        });
-        html += '</tr>';
-
-        // Riga BY CONTRACT
-        html += '<tr><td class="night-label" style="color:#7C3AED;font-weight:500">BY CONTRACT</td>';
-        cont.forEach(v => {
-            html += v ? `<td style="color:#7C3AED;font-weight:500">${v}</td>` : `<td class="zero">—</td>`;
-        });
-        html += '</tr>';
-
-        // Riga DELTA
-        html += '<tr><td class="night-label" style="color:var(--text-muted);font-size:11px">DELTA</td>';
-        conf.forEach((v, i) => {
-            const delta = v - cont[i];
-            const color = delta < 0 ? 'var(--danger)' : delta > 0 ? 'var(--success)' : 'var(--text-muted)';
-            const sign  = delta > 0 ? '+' : '';
-            html += (delta !== 0 || cont[i] > 0)
-                ? `<td style="color:${color};font-weight:600;font-size:11px">${sign}${delta}</td>`
-                : `<td class="zero">—</td>`;
-        });
-        html += '</tr>';
-    });
-
-    html += '</tbody></table></div>';
-    html += '<p style="font-size:11px;color:var(--text-muted);margin-top:8px">DELTA = CONFIRMED − BY CONTRACT &nbsp;|&nbsp; <span style="color:var(--danger)">rosso</span> = sotto contratto &nbsp;|&nbsp; <span style="color:var(--success)">verde</span> = sopra contratto</p>';
-    document.getElementById('occupancyContent').innerHTML = html;
+    document.getElementById('previewContent').innerHTML = renderParticipantTable(data.rows);
+    document.getElementById('previewCount').textContent = `${data.total} partecipanti`;
+    document.getElementById('previewDownloadBtn').style.display = '';
 }
+
+// Chiudi modali cliccando fuori
+document.addEventListener('click', e => {
+    if (e.target === document.getElementById('categoryModal')) closeCategoryModal();
+    if (e.target === document.getElementById('billingModal'))  closeBillingModal();
+    if (e.target === document.getElementById('arrivalModal'))  closeArrivalModal();
+});
 </script>
 {% endblock %}
