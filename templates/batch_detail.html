@@ -60,6 +60,7 @@
                 <button onclick="openBillingModal()" style="background:#E6F1FB;color:#0C447C;border:none;border-radius:6px;padding:8px 12px;font-size:12px;text-align:left;cursor:pointer;font-family:inherit;white-space:nowrap">💳 Billing</button>
                 <button onclick="openArrivalModal()" style="background:#EAF3DE;color:#27500A;border:none;border-radius:6px;padding:8px 12px;font-size:12px;text-align:left;cursor:pointer;font-family:inherit;white-space:nowrap">✈ Arrivo</button>
                 <button onclick="showQueryBuilder()" style="background:#FCEBEB;color:#791F1F;border:none;border-radius:6px;padding:8px 12px;font-size:12px;text-align:left;cursor:pointer;font-family:inherit;white-space:nowrap">🔍 Query libera</button>
+                <button onclick="openTransferModal()" style="background:#E1F5EE;color:#085041;border:none;border-radius:6px;padding:8px 12px;font-size:12px;text-align:left;cursor:pointer;font-family:inherit;white-space:nowrap">🚌 Transfer</button>
             </div>
         </div>
 
@@ -72,6 +73,22 @@
             </div>
         </div>
 
+    </div>
+</div>
+
+<!-- Modale Transfer -->
+<div id="transferModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:10px;padding:28px 32px;max-width:440px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+        <h3 style="font-size:16px;font-weight:600;color:var(--primary);margin-bottom:14px">Report Transfer</h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Seleziona uno o più hotel:</p>
+        <div style="margin-bottom:10px"><button type="button" class="btn-sm" onclick="toggleAllTransfer()">tutto/niente</button></div>
+        <form method="POST" action="{{ url_for('rooming.report_transfer', batch_id=batch_id) }}">
+            <div id="transferList" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:18px"></div>
+            <div style="display:flex;gap:10px;justify-content:flex-end">
+                <button type="button" class="btn-sm" onclick="closeTransferModal()">Annulla</button>
+                <button type="submit" class="btn-primary">⬇ Scarica Excel</button>
+            </div>
+        </form>
     </div>
 </div>
 
@@ -493,7 +510,27 @@ async function runArrivalReport() {
     document.getElementById('previewDownloadBtn').style.display = '';
 }
 
-// ── Query builder ─────────────────────────────────────────────────────────
+// ── Transfer modal ────────────────────────────────────────────────────────
+async function openTransferModal() {
+    const res   = await fetch(`/api/pivot/${BATCH_ID_PIVOT}`);
+    const data  = await res.json();
+    const hotels = data.hotels || [];
+    const list = document.getElementById('transferList');
+    list.innerHTML = '';
+    hotels.forEach(h => {
+        list.innerHTML += `<label style="display:flex;align-items:center;gap:6px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:6px 10px;cursor:pointer;"><input type="checkbox" name="hotels" value="${h}" checked>${h}</label>`;
+    });
+    document.getElementById('transferModal').style.display = 'flex';
+}
+function closeTransferModal() { document.getElementById('transferModal').style.display='none'; }
+let allTransferChecked=true;
+function toggleAllTransfer() {
+    allTransferChecked=!allTransferChecked;
+    document.querySelectorAll('#transferList input').forEach(i=>i.checked=allTransferChecked);
+}
+document.addEventListener('click', e => {
+    if (e.target === document.getElementById('transferModal')) closeTransferModal();
+});
 function showQueryBuilder() {
     document.getElementById('queryBuilder').style.display = 'block';
     document.getElementById('queryBuilder').scrollIntoView({behavior:'smooth'});

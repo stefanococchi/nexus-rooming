@@ -1658,6 +1658,126 @@ def api_categories(batch_id):
     return jsonify({'categories': categories})
 
 
+
+@rooming_bp.route('/report-transfer/<path:batch_id>', methods=['POST'])
+def report_transfer(batch_id):
+    """Excel transfer: righe=partecipanti, colonne=notti, no CXL."""
+    from sqlalchemy import or_
+    hotels = request.form.getlist('hotels')
+
+    q = RoomingList.query.filter_by(import_batch=batch_id)\
+                         .filter(RoomingList.registration_state != 'CXL')
+    if hotels:
+        conditions = [RoomingList.hotel == h for h in hotels]
+        q = q.filter(or_(*conditions))
+
+    rows = q.order_by(RoomingList.last_name, RoomingList.first_name).all()
+
+    if not rows:
+        flash('Nessun partecipante trovato.', 'error')
+        return redirect(url_for('rooming.batch_detail', batch_id=batch_id))
+
+    NIGHTS = [
+        ('night_sat_28mar', '28/03'),
+        ('night_sun_29mar', '29/03'),
+        ('night_mon_30mar', '30/03'),
+        ('night_tue_31mar', '31/03'),
+        ('night_wed_1apr',  '01/04'),
+        ('night_thu_2apr',  '02/04'),
+        ('night_fri_3apr',  '03/04'),
+        ('night_sat_4apr',  '04/04'),
+    ]
+
+    wb  = openpyxl.Workbook()
+    ws  = wb.active
+    ws.title = 'Transfer'
+
+    hdr_font  = Font(name='Calibri', bold=True, color='FFFFFF', size=10)
+    hdr_fill  = PatternFill('solid', start_color='1F3864')
+    norm_font = Font(name='Calibri', size=10)
+    tot_font  = Font(name='Calibri', bold=True, size=10)
+    tot_fill  = PatternFill('solid', start_color='D9E1F2')
+    center = Alignment(horizontal='center', vertical='center')
+    left   = Alignment(horizontal='left',   vertical='center')
+    thin   = Border(left=Side(style='thin'), right=Side(style='thin'),
+                    top=Side(style='thin'),  bottom=Side(style='thin'))
+
+    n_cols = 3 + len(NIGHTS)
+
+    # Titolo
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
+    tc = ws.cell(row=1, column=1, value='TRANSFER LIST')
+    tc.font = Font(name='Calibri', bold=True, size=14, color='1F3864')
+    tc.alignment = center
+    ws.row_dimensions[1].height = 26
+
+    # Sottotitolo
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=n_cols)
+    hotel_str = ', '.join(hotels) if hotels else 'tutti gli hotel'
+    ts_str = datetime.now().strftime('%d/%m/%Y %H:%M')
+    ws.cell(row=2, column=1,
+            value=f'Hotel: {hotel_str}  |  {len(rows)} partecipanti  |  {ts_str}'
+            ).font = Font(name='Calibri', size=9, italic=True)
+    ws.row_dimensions[2].height = 14
+
+    # Intestazioni
+    headers = ['Cognome', 'Nome', 'Hotel'] + [label for _, label in NIGHTS]
+    for col, h in enumerate(headers, 1):
+        c = ws.cell(row=3, column=col, value=h)
+        c.font = hdr_font; c.fill = hdr_fill
+        c.alignment = center; c.border = thin
+    ws.row_dimensions[3].height = 20
+
+    # Righe partecipanti + contatori totale
+    totals = [0] * len(NIGHTS)
+    for rn, r in enumerate(rows, 4):
+        ws.cell(row=rn, column=1, value=r.last_name or '').font = norm_font
+        ws.cell(row=rn, column=1).border = thin
+        ws.cell(row=rn, column=1).alignment = left
+        ws.cell(row=rn, column=2, value=r.first_name or '').font = norm_font
+        ws.cell(row=rn, column=2).border = thin
+        ws.cell(row=rn, column=2).alignment = left
+        ws.cell(row=rn, column=3, value=r.hotel or '').font = norm_font
+        ws.cell(row=rn, column=3).border = thin
+        ws.cell(row=rn, column=3).alignment = left
+
+        for ni, (field, _) in enumerate(NIGHTS):
+            val = 'X' if getattr(r, field) else ''
+            c = ws.cell(row=rn, column=4+ni, value=val)
+            c.font = norm_font; c.border = thin; c.alignment = center
+            if val:
+                totals[ni] += 1
+        ws.row_dimensions[rn].height = 15
+
+    # Riga totale
+    tot_row = len(rows) + 4
+    ws.merge_cells(start_row=tot_row, start_column=1, end_row=tot_row, end_column=3)
+    tc = ws.cell(row=tot_row, column=1, value='TOTALE')
+    tc.font = tot_font; tc.fill = tot_fill; tc.alignment = left; tc.border = thin
+    for ni, t in enumerate(totals):
+        c = ws.cell(row=tot_row, column=4+ni, value=t)
+        c.font = tot_font; c.fill = tot_fill
+        c.alignment = center; c.border = thin
+    ws.row_dimensions[tot_row].height = 18
+
+    # Larghezze colonne
+    ws.column_dimensions['A'].width = 22
+    ws.column_dimensions['B'].width = 16
+    ws.column_dimensions['C'].width = 20
+    for ni in range(len(NIGHTS)):
+        ws.column_dimensions[get_column_letter(4+ni)].width = 8
+
+    ws.freeze_panes = 'A4'
+
+    buf = io.BytesIO()
+    wb.save(buf); buf.seek(0)
+    hotel_tag = hotels[0].replace(' ', '_')[:20] if len(hotels)==1 else 'multi'
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return send_file(buf, as_attachment=True,
+                     download_name=f'Transfer_{hotel_tag}_{ts}.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
 @rooming_bp.route('/api/billings/<path:batch_id>')
 def api_billings(batch_id):
     """Ritorna i valori billing presenti nel batch, ordinati."""
