@@ -39,6 +39,63 @@
            class="btn-export-hotel">⬇ Scarica Excel</a>
     </div>
 {% endfor %}
+
+{% set n_no_need  = da_controllare.no_need | length %}
+{% set n_no_hotel = da_controllare.no_hotel | length %}
+{% set n_no_dates = da_controllare.no_dates | length %}
+{% if n_no_need > 0 or n_no_hotel > 0 or n_no_dates > 0 %}
+    <div class="hotel-card hotel-card-wide" style="border-color:#F59E0B;background:#FFFBEB">
+        <div class="hotel-name" style="color:#92400E">⚠ Da controllare</div>
+        <div class="hotel-stats" style="text-align:left">
+            {% if n_no_need > 0 %}
+            <span style="font-size:12px;color:#92400E;font-weight:500">{{ n_no_need }} no-need</span>
+            {% endif %}
+            {% if n_no_hotel > 0 %}
+            <span style="font-size:12px;color:#DC2626;font-weight:500">{{ n_no_hotel }} senza hotel</span>
+            {% endif %}
+            {% if n_no_dates > 0 %}
+            <span style="font-size:12px;color:#7C3AED;font-weight:500">{{ n_no_dates }} senza date</span>
+            {% endif %}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:11px;color:#92400E;margin-bottom:8px">
+            {% for r in da_controllare.no_need %}
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+                <span>{{ r.last_name }} {{ r.first_name }}{% if r.hotel %} ({{ r.hotel }}){% endif %}</span>
+                <button onclick="openAssociaModal({{ r.id }}, '{{ r.last_name }} {{ r.first_name }}')"
+                    style="background:#D97706;color:#fff;border:none;border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer;white-space:nowrap">
+                    Associa
+                </button>
+            </div>
+            {% endfor %}
+            {% for r in da_controllare.no_hotel %}
+            <div style="color:#DC2626">{{ r.last_name }} {{ r.first_name }} — senza hotel</div>
+            {% endfor %}
+            {% for r in da_controllare.no_dates %}
+            <div style="color:#7C3AED">{{ r.last_name }} {{ r.first_name }} — {{ r.hotel }} (senza date)</div>
+            {% endfor %}
+        </div>
+        <a href="{{ url_for('rooming.export_da_controllare', batch_id=batch_id) }}"
+           class="btn-export-hotel" style="background:#D97706;text-align:center">⬇ Scarica Excel</a>
+    </div>
+{% endif %}
+</div>
+
+<!-- Modale associazione manuale -->
+<div id="associaModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:10px;padding:28px 32px;max-width:480px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+        <h3 style="font-size:16px;font-weight:600;color:var(--primary);margin-bottom:6px">Associa partecipante</h3>
+        <p id="associaNome" style="font-size:13px;color:#92400E;font-weight:500;margin-bottom:14px"></p>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Cerca il compagno di stanza:</p>
+        <input type="text" id="associaSearch" placeholder="Cognome o nome…"
+            oninput="searchAssociaPartner(this.value)"
+            style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;margin-bottom:8px;box-sizing:border-box">
+        <div id="associaResults" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;display:none;margin-bottom:14px"></div>
+        <div id="associaSelected" style="display:none;background:#EAF3DE;border:1px solid #639922;border-radius:6px;padding:8px 12px;font-size:13px;color:#27500A;margin-bottom:14px"></div>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+            <button class="btn-sm" onclick="closeAssociaModal()">Annulla</button>
+            <button id="associaSaveBtn" class="btn-primary" onclick="saveAssociazione()" disabled>✓ Conferma</button>
+        </div>
+    </div>
 </div>
 
 <!-- 2. Barra azioni -->
@@ -510,7 +567,84 @@ async function runArrivalReport() {
     document.getElementById('previewDownloadBtn').style.display = '';
 }
 
-// ── Transfer modal ────────────────────────────────────────────────────────
+// ── Associa modale ────────────────────────────────────────────────────────
+let associaRowId    = null;
+let associaPartnerId = null;
+
+function openAssociaModal(rowId, nome) {
+    associaRowId     = rowId;
+    associaPartnerId = null;
+    document.getElementById('associaNome').textContent      = nome;
+    document.getElementById('associaSearch').value          = '';
+    document.getElementById('associaResults').style.display = 'none';
+    document.getElementById('associaResults').innerHTML     = '';
+    document.getElementById('associaSelected').style.display = 'none';
+    document.getElementById('associaSaveBtn').disabled       = true;
+    document.getElementById('associaModal').style.display   = 'flex';
+}
+
+function closeAssociaModal() {
+    document.getElementById('associaModal').style.display = 'none';
+}
+
+async function searchAssociaPartner(q) {
+    if (q.length < 2) {
+        document.getElementById('associaResults').style.display = 'none';
+        return;
+    }
+    const res  = await fetch(`/api/search-participants/${BATCH_ID_PIVOT}?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    const box  = document.getElementById('associaResults');
+    box.innerHTML = '';
+    if (!data.results.length) {
+        box.innerHTML = '<p style="padding:8px 12px;color:var(--text-muted);font-size:12px">Nessun risultato</p>';
+    } else {
+        data.results.forEach(p => {
+            const div = document.createElement('div');
+            div.style = 'padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)';
+            div.textContent = `${p.last_name} ${p.first_name} — ${p.hotel || 'senza hotel'}`;
+            div.onmouseenter = () => div.style.background = '#F0F9FF';
+            div.onmouseleave = () => div.style.background = '';
+            div.onclick = () => selectAssociaPartner(p);
+            box.appendChild(div);
+        });
+    }
+    box.style.display = 'block';
+}
+
+function selectAssociaPartner(p) {
+    associaPartnerId = p.id;
+    document.getElementById('associaSearch').value          = `${p.last_name} ${p.first_name}`;
+    document.getElementById('associaResults').style.display = 'none';
+    const sel = document.getElementById('associaSelected');
+    sel.textContent    = `Compagno: ${p.last_name} ${p.first_name} — ${p.hotel || 'senza hotel'} | Notti: ${p.nights}`;
+    sel.style.display  = 'block';
+    document.getElementById('associaSaveBtn').disabled = false;
+}
+
+async function saveAssociazione() {
+    if (!associaRowId || !associaPartnerId) return;
+    const btn = document.getElementById('associaSaveBtn');
+    btn.textContent = '⏳…'; btn.disabled = true;
+    const res = await fetch(`/api/associa-partner`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({row_id: associaRowId, partner_id: associaPartnerId, batch_id: BATCH_ID_PIVOT})
+    });
+    const data = await res.json();
+    if (data.ok) {
+        closeAssociaModal();
+        location.reload();
+    } else {
+        btn.textContent = '✓ Conferma'; btn.disabled = false;
+        alert('Errore: ' + (data.error || 'sconosciuto'));
+    }
+}
+
+document.addEventListener('click', e => {
+    if (e.target === document.getElementById('associaModal')) closeAssociaModal();
+});
+
 async function openTransferModal() {
     const res   = await fetch(`/api/pivot/${BATCH_ID_PIVOT}`);
     const data  = await res.json();

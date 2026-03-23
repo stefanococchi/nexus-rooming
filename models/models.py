@@ -37,7 +37,13 @@ class RoomingList(db.Model):
     # Metadati import
     imported_at                 = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     import_batch                = db.Column(db.String(300), nullable=False, index=True)
-    file_timestamp              = db.Column(db.DateTime, nullable=True)   # ultima modifica del file XLS
+    file_timestamp              = db.Column(db.DateTime, nullable=True)
+
+    # Categorizzazione no-need
+    # 'shares_room'  = night_no_need=Yes + parent_ref valorizzato
+    # 'no_hotel'     = hotel vuoto
+    # 'no_need_solo' = night_no_need=Yes senza parent_ref
+    room_category               = db.Column(db.String(20), nullable=True, index=True)
 
     # Col 0
     registration_state          = db.Column(db.String(50))
@@ -149,7 +155,27 @@ class ExportConfig(db.Model):
     updated_at  = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
-# ─── HOTEL CONTRACT ───────────────────────────────────────────────────────────
+# ─── MANUAL ASSOCIATION ───────────────────────────────────────────────────────
+
+class ManualAssociation(db.Model):
+    """Persistenza delle associazioni manuali tra partecipanti no-need e compagni di stanza."""
+    __tablename__ = 'manual_associations'
+
+    id                   = db.Column(db.Integer, primary_key=True)
+    created_at           = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Partecipante no-need
+    last_name            = db.Column(db.String(100), nullable=False, index=True)
+    first_name           = db.Column(db.String(100), nullable=True)
+
+    # Compagno di stanza
+    partner_last_name    = db.Column(db.String(100), nullable=False)
+    partner_first_name   = db.Column(db.String(100), nullable=True)
+
+    __table_args__ = (
+        db.UniqueConstraint('last_name', 'first_name',
+                            name='uq_manual_association'),
+    )
 
 class HotelContract(db.Model):
     __tablename__ = 'hotel_contracts'

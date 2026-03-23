@@ -433,14 +433,12 @@ def build_hotel_excel(hotel_name, rows, diff, batch_id, prev_batch_id):
 # ── Routes ───────────────────────────────────────────────────────────────────
 
 @rooming_bp.route('/')
-
 def index():
     batches = get_batches()
     return render_template('index.html', batches=batches)
 
 
 @rooming_bp.route('/upload', methods=['POST'])
-
 def upload():
     import re as _re
     from datetime import date as _date
@@ -527,16 +525,109 @@ def upload():
         obj.change_type = ctype
         obj.change_date = cdate
 
+        # Categorizza room_category
+        is_no_need   = str(obj.night_no_need or '').strip().lower() == 'yes'
+        is_spouse    = str(obj.status_spouse or '').strip().lower() == 'yes'
+        has_parent   = bool(obj.internal_parent_reference)
+        has_hotel    = bool(obj.hotel)
+        NFIELDS = ['night_sat_28mar','night_sun_29mar','night_mon_30mar','night_tue_31mar',
+                   'night_wed_1apr','night_thu_2apr','night_fri_3apr','night_sat_4apr']
+        has_nights   = any(getattr(obj, f) for f in NFIELDS)
+
+        if is_no_need and (has_parent or is_spouse):
+            obj.room_category = 'shares_room'
+        elif not has_hotel:
+            obj.room_category = 'no_hotel'
+        elif is_no_need and not has_parent and not is_spouse:
+            obj.room_category = 'no_need_solo'
+        elif has_hotel and not has_nights and not is_no_need and (obj.registration_state or '').strip().upper() != 'CXL':
+            obj.room_category = 'no_dates'
+        else:
+            obj.room_category = None
+
         db.session.add(obj)
         inserted += 1
 
     db.session.commit()
-    flash(f'Import completato: {inserted} partecipanti caricati (batch: {batch_id[:19]}).', 'success')
+
+    # ── Secondo passaggio: eredita notti per shares_room ─────────────────────
+    from models.models import ManualAssociation
+
+    all_batch = RoomingList.query.filter_by(import_batch=batch_id).all()
+    ref_map   = {str(r.internal_reference).strip(): r
+                 for r in all_batch if r.internal_reference}
+
+    # Carica associazioni manuali salvate: {(LAST, FIRST): (PARTNER_LAST, PARTNER_FIRST)}
+    manual_assoc = {
+        (a.last_name.upper(), (a.first_name or '').upper()):
+        (a.partner_last_name.upper(), (a.partner_first_name or '').upper())
+        for a in ManualAssociation.query.all()
+    }
+    # Mappa nome → record nel batch corrente
+    name_map = {
+        ((r.last_name or '').upper(), (r.first_name or '').upper()): r
+        for r in all_batch
+    }
+
+    NIGHT_FIELDS = ['night_sat_28mar', 'night_sun_29mar', 'night_mon_30mar',
+                    'night_tue_31mar', 'night_wed_1apr',  'night_thu_2apr',
+                    'night_fri_3apr',  'night_sat_4apr']
+
+    updated = 0
+    for r in all_batch:
+        if r.room_category != 'shares_room':
+            continue
+        # Già ha notti proprie — niente da fare
+        if any(getattr(r, f) for f in NIGHT_FIELDS):
+            continue
+
+        parent = None
+
+        # 1. Via internal_parent_reference
+        if r.internal_parent_reference:
+            parent = ref_map.get(str(r.internal_parent_reference).strip())
+
+        # 2. Via associazione manuale salvata
+        if not parent:
+            key = ((r.last_name or '').upper(), (r.first_name or '').upper())
+            if key in manual_assoc:
+                partner_key = manual_assoc[key]
+                parent = name_map.get(partner_key)
+
+        # 3. Via nome nel campo upgrade/comment del batch
+        if not parent:
+            fname = (r.first_name or '').strip().lower()
+            lname = (r.last_name  or '').strip().lower()
+            for candidate in all_batch:
+                if candidate.id == r.id:
+                    continue
+                text = ' '.join([
+                    str(candidate.upgrade or ''),
+                    str(candidate.comment or ''),
+                ]).lower()
+                if (fname and fname in text) or (lname and lname in text):
+                    if any(getattr(candidate, f) for f in NIGHT_FIELDS):
+                        parent = candidate
+                        break
+
+        if parent and any(getattr(parent, f) for f in NIGHT_FIELDS):
+            for f in NIGHT_FIELDS:
+                setattr(r, f, getattr(parent, f))
+            if not r.hotel and parent.hotel:
+                r.hotel = parent.hotel
+            updated += 1
+        else:
+            # Parent non trovato o senza notti — metti in Da controllare
+            r.room_category = 'no_need_solo'
+
+    if updated:
+        db.session.commit()
+
+    flash(f'Import completato: {inserted} partecipanti caricati, {updated} notti ereditate (batch: {batch_id[:19]}).', 'success')
     return redirect(url_for('rooming.index'))
 
 
 @rooming_bp.route('/batch/<path:batch_id>')
-
 def batch_detail(batch_id):
     rows = RoomingList.query.filter_by(import_batch=batch_id)\
                             .order_by(RoomingList.hotel, RoomingList.last_name)\
@@ -546,9 +637,30 @@ def batch_detail(batch_id):
         return redirect(url_for('rooming.index'))
 
     hotels = {}
+    da_controllare_no_need = []   # night_no_need=Yes senza parent_ref
+    da_controllare_no_hotel = []  # hotel vuoto (qualunque notte)
+
+    da_controllare_no_need  = []
+    da_controllare_no_hotel = []
+    da_controllare_no_dates = []
+
     for r in rows:
-        h = r.hotel or 'SENZA HOTEL'
-        hotels.setdefault(h, []).append(r)
+        if r.room_category == 'no_need_solo':
+            da_controllare_no_need.append(r)
+        elif r.room_category == 'no_hotel':
+            da_controllare_no_hotel.append(r)
+        elif r.room_category == 'no_dates':
+            da_controllare_no_dates.append(r)
+        elif not r.hotel or not r.hotel.strip():
+            da_controllare_no_hotel.append(r)
+        else:
+            hotels.setdefault(r.hotel, []).append(r)
+
+    da_controllare = {
+        'no_need':  da_controllare_no_need,
+        'no_hotel': da_controllare_no_hotel,
+        'no_dates': da_controllare_no_dates,
+    }
 
     # Raggruppa modifiche per hotel: {hotel: [(change_type, change_date, count), ...]}
     hotel_changes = {}
@@ -559,7 +671,6 @@ def batch_detail(batch_id):
                 date_str = r.change_date.strftime('%d/%m') if r.change_date else '?'
                 key = (r.change_type, date_str)
                 counts[key] = counts.get(key, 0) + 1
-        # Ordina per data
         hotel_changes[h] = sorted(
             [(ct, cd, n) for (ct, cd), n in counts.items()],
             key=lambda x: x[1]
@@ -584,12 +695,12 @@ def batch_detail(batch_id):
                            batch_id=batch_id,
                            hotels=hotels,
                            hotel_changes=hotel_changes,
+                           da_controllare=da_controllare,
                            diff=diff,
                            prev_batch=prev_batch)
 
 
 @rooming_bp.route('/export/<path:batch_id>/<hotel_name>')
-
 def export_hotel(batch_id, hotel_name):
     rows = RoomingList.query.filter_by(import_batch=batch_id, hotel=hotel_name).all()
     if not rows:
@@ -617,8 +728,101 @@ def export_hotel(batch_id, hotel_name):
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
-@rooming_bp.route('/export-all/<path:batch_id>')
+@rooming_bp.route('/export-da-controllare/<path:batch_id>')
+def export_da_controllare(batch_id):
+    """Excel con sezioni separate: no-need senza parent + senza hotel."""
+    rows = RoomingList.query.filter_by(import_batch=batch_id).all()
 
+    no_need_rows  = sorted(
+        [r for r in rows if r.room_category == 'no_need_solo'],
+        key=lambda r: (str(r.last_name or '').upper(), str(r.first_name or '').upper())
+    )
+    no_hotel_rows = sorted(
+        [r for r in rows if r.room_category == 'no_hotel' or (not r.hotel and r.room_category not in ('no_need_solo','shares_room','no_dates'))],
+        key=lambda r: (str(r.last_name or '').upper(), str(r.first_name or '').upper())
+    )
+    no_dates_rows = sorted(
+        [r for r in rows if r.room_category == 'no_dates'],
+        key=lambda r: (str(r.last_name or '').upper(), str(r.first_name or '').upper())
+    )
+
+    wb  = openpyxl.Workbook()
+    ws  = wb.active
+    ws.title = 'Da Controllare'
+
+    hdr_font   = Font(name='Calibri', bold=True, color='FFFFFF', size=10)
+    norm_font  = Font(name='Calibri', size=10)
+    sec1_fill  = PatternFill('solid', start_color='FEF3C7')  # giallo — no need
+    sec2_fill  = PatternFill('solid', start_color='FEE2E2')  # rosso — senza hotel
+    sect_font1 = Font(name='Calibri', bold=True, size=11, color='FFFFFF')
+    center = Alignment(horizontal='center', vertical='center')
+    left   = Alignment(horizontal='left',   vertical='center')
+    thin   = Border(left=Side(style='thin'), right=Side(style='thin'),
+                    top=Side(style='thin'),  bottom=Side(style='thin'))
+
+    n_cols = len(PREVIEW_COLS)
+
+    # Titolo
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
+    tc = ws.cell(row=1, column=1, value='DA CONTROLLARE')
+    tc.font = Font(name='Calibri', bold=True, size=14, color='1F3864')
+    tc.alignment = center
+    ws.row_dimensions[1].height = 26
+
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=n_cols)
+    ts_str = datetime.now().strftime('%d/%m/%Y %H:%M')
+    ws.cell(row=2, column=1,
+            value=f'Generato il {ts_str}  |  {len(no_need_rows)} no-need  +  {len(no_hotel_rows)} senza hotel  +  {len(no_dates_rows)} senza date'
+            ).font = Font(name='Calibri', size=9, italic=True)
+    ws.row_dimensions[2].height = 14
+
+    row_num = 3
+
+    def write_section(title, fill_color, rows_list):
+        nonlocal row_num
+        if not rows_list:
+            return
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=n_cols)
+        hc = ws.cell(row=row_num, column=1, value=title)
+        hc.font = sect_font1
+        hc.fill = PatternFill('solid', start_color=fill_color)
+        hc.alignment = left
+        ws.row_dimensions[row_num].height = 20
+        row_num += 1
+        for col, (field, label) in enumerate(PREVIEW_COLS, 1):
+            c = ws.cell(row=row_num, column=col, value=label)
+            c.font = hdr_font
+            c.fill = PatternFill('solid', start_color='1F3864')
+            c.alignment = center; c.border = thin
+        ws.row_dimensions[row_num].height = 18
+        row_num += 1
+        for r in rows_list:
+            for col, (field, _) in enumerate(PREVIEW_COLS, 1):
+                c = ws.cell(row=row_num, column=col, value=cell_val(field, r))
+                c.font = norm_font
+                c.fill = PatternFill('solid', start_color=fill_color)
+                c.alignment = left; c.border = thin
+            ws.row_dimensions[row_num].height = 15
+            row_num += 1
+
+    write_section('NO NEED — senza parent ref', 'FEF3C7', no_need_rows)
+    write_section('SENZA HOTEL', 'FEE2E2', no_hotel_rows)
+    write_section('SENZA DATE — hotel assegnato ma notti mancanti', 'EDE9FE', no_dates_rows)
+
+    for col, (field, _) in enumerate(PREVIEW_COLS, 1):
+        ws.column_dimensions[get_column_letter(col)].width = COL_WIDTHS.get(field, 14)
+    ws.freeze_panes = 'A3'
+
+    buf = io.BytesIO()
+    wb.save(buf); buf.seek(0)
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return send_file(buf, as_attachment=True,
+                     download_name=f'DaControllare_{ts}.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+
+@rooming_bp.route('/export-all/<path:batch_id>')
 def export_all(batch_id):
     """Scarica un ZIP con un Excel per ogni hotel."""
     import zipfile
@@ -1645,7 +1849,83 @@ def upload_contracts():
     return redirect(url_for('rooming.index'))
 
 
-@rooming_bp.route('/api/categories/<path:batch_id>')
+@rooming_bp.route('/api/search-participants/<path:batch_id>')
+def api_search_participants(batch_id):
+    """Cerca partecipanti nel batch per cognome/nome."""
+    q = request.args.get('q', '').strip().lower()
+    if len(q) < 2:
+        return jsonify({'results': []})
+
+    rows = RoomingList.query.filter_by(import_batch=batch_id)\
+                            .filter(RoomingList.registration_state != 'CXL')\
+                            .all()
+
+    NIGHT_LABELS = ['28/03','29/03','30/03','31/03','01/04','02/04','03/04','04/04']
+    NIGHT_FIELDS_S = ['night_sat_28mar','night_sun_29mar','night_mon_30mar','night_tue_31mar',
+                      'night_wed_1apr','night_thu_2apr','night_fri_3apr','night_sat_4apr']
+
+    results = []
+    for r in rows:
+        fn = (r.first_name or '').lower()
+        ln = (r.last_name  or '').lower()
+        if q in fn or q in ln:
+            nights_str = ' '.join(NIGHT_LABELS[i] for i, f in enumerate(NIGHT_FIELDS_S) if getattr(r, f))
+            results.append({
+                'id':        r.id,
+                'last_name': r.last_name or '',
+                'first_name':r.first_name or '',
+                'hotel':     r.hotel or '',
+                'nights':    nights_str or '—',
+            })
+
+    results.sort(key=lambda x: (x['last_name'].upper(), x['first_name'].upper()))
+    return jsonify({'results': results[:20]})
+
+
+@rooming_bp.route('/api/associa-partner', methods=['POST'])
+def api_associa_partner():
+    """Associa manualmente un no-need al suo compagno di stanza e salva per i batch futuri."""
+    from models.models import ManualAssociation
+    data       = request.get_json()
+    row_id     = data.get('row_id')
+    partner_id = data.get('partner_id')
+
+    row     = RoomingList.query.get(row_id)
+    partner = RoomingList.query.get(partner_id)
+
+    if not row or not partner:
+        return jsonify({'ok': False, 'error': 'Record non trovato'})
+
+    NIGHT_FIELDS_A = ['night_sat_28mar','night_sun_29mar','night_mon_30mar','night_tue_31mar',
+                      'night_wed_1apr','night_thu_2apr','night_fri_3apr','night_sat_4apr']
+
+    for f in NIGHT_FIELDS_A:
+        setattr(row, f, getattr(partner, f))
+
+    if not row.hotel and partner.hotel:
+        row.hotel = partner.hotel
+
+    row.room_category = 'shares_room'
+
+    # Salva associazione per batch futuri
+    existing = ManualAssociation.query.filter_by(
+        last_name=row.last_name, first_name=row.first_name).first()
+    if existing:
+        existing.partner_last_name  = partner.last_name
+        existing.partner_first_name = partner.first_name
+    else:
+        db.session.add(ManualAssociation(
+            last_name=row.last_name,
+            first_name=row.first_name,
+            partner_last_name=partner.last_name,
+            partner_first_name=partner.first_name,
+        ))
+
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+
 def api_categories(batch_id):
     """Ritorna le categorie azienda presenti nel batch, ordinate."""
     cats = db.session.execute(db.text("""
@@ -1845,9 +2125,16 @@ def report_transfer(batch_id):
         ws.cell(row=rn, column=3).border = thin
         ws.cell(row=rn, column=3).alignment = left
 
-        nights = get_nights(r)
         for ni, (field, _) in enumerate(NIGHTS):
-            val = 'X' if nights[field] else ''
+            # Eredita notti del parent solo se night_no_need=Yes + parent_ref valorizzato
+            is_no_need = (r.night_no_need or '').strip().lower() == 'yes'
+            has_parent = bool(r.internal_parent_reference)
+            if is_no_need and has_parent and not getattr(r, field):
+                parent = ref_map.get(str(r.internal_parent_reference).strip())
+                night_val = bool(getattr(parent, field)) if parent else False
+            else:
+                night_val = bool(getattr(r, field))
+            val = 'X' if night_val else ''
             c = ws.cell(row=rn, column=4+ni, value=val)
             c.font = norm_font; c.border = thin; c.alignment = center
             if val:
@@ -2120,7 +2407,6 @@ def report_arrival(batch_id):
 
 
 @rooming_bp.route('/api/occupancy/<path:batch_id>')
-
 def api_occupancy(batch_id):
     """Ritorna JSON con CONFIRMED vs BY CONTRACT per hotel x data."""
     from models.models import HotelContract

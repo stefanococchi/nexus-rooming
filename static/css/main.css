@@ -185,6 +185,13 @@ body {
     border-radius: var(--radius); padding: 16px;
     box-shadow: var(--shadow); text-align: center;
 }
+.hotel-card-wide {
+    grid-column: span 2;
+    text-align: left;
+}
+@media (max-width: 600px) {
+    .hotel-card-wide { grid-column: span 1; }
+}
 .hotel-name  { font-weight: 600; font-size: 14px; color: var(--primary); margin-bottom: 8px; }
 .hotel-stats { margin-bottom: 12px; font-size: 12px; }
 .stat-active { color: var(--success); font-weight: 500; }
