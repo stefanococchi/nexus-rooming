@@ -88,6 +88,7 @@ EXPORT_COLS = [
     ('email',                'Email'),
     ('phone',                'Phone'),
     ('billing',              'Billing'),
+    ('company_category',     'Category'),
     ('upgrade',              'Upgrade'),
     ('arrival_mode',         'Arrival Mode'),
     ('check_in',             'Check In'),
