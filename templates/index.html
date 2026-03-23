@@ -41,6 +41,25 @@
     </form>
 </div>
 
+<!-- Upload attività -->
+<div class="card upload-card" style="max-width:580px;margin-bottom:20px">
+    <h2>Carica Attività</h2>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">
+        File Excel con un foglio per ogni attività. Associa al batch rooming per collegare i partecipanti.
+    </p>
+    <form method="POST" action="{{ url_for('rooming.upload_activities') }}"
+          enctype="multipart/form-data" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <input type="file" name="file" accept=".xlsx" required style="font-size:13px;flex:1">
+        <select name="batch_id" style="font-size:13px;padding:6px 8px;border:1px solid var(--border);border-radius:5px">
+            <option value="">— nessun batch —</option>
+            {% for batch_id, total, imported_at in batches %}
+            <option value="{{ batch_id }}">{{ imported_at.strftime('%d/%m %H:%M') }} ({{ total }} partecipanti)</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="btn-sm btn-export">⬆ Carica</button>
+    </form>
+</div>
+
 {% if batches %}
 <div class="card">
     <h2>Import precedenti</h2>

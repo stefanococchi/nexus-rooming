@@ -155,6 +155,35 @@ class ExportConfig(db.Model):
     updated_at  = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+# ─── ACTIVITIES ───────────────────────────────────────────────────────────────
+
+class Activity(db.Model):
+    __tablename__ = 'activities'
+
+    id         = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    name       = db.Column(db.String(200), nullable=False)
+    date       = db.Column(db.Date, nullable=True)
+    import_batch = db.Column(db.String(300), nullable=True)  # batch rooming di riferimento
+
+    participants = db.relationship('ActivityParticipant', backref='activity',
+                                   lazy=True, cascade='all, delete-orphan')
+
+
+class ActivityParticipant(db.Model):
+    __tablename__ = 'activity_participants'
+
+    id              = db.Column(db.Integer, primary_key=True)
+    activity_id     = db.Column(db.Integer, db.ForeignKey('activities.id'), nullable=False, index=True)
+    rooming_list_id = db.Column(db.Integer, db.ForeignKey('rooming_list.id'), nullable=True, index=True)
+
+    # Dati dal file attività (utili anche se rooming_list_id è NULL)
+    last_name       = db.Column(db.Text, nullable=True)
+    first_name      = db.Column(db.Text, nullable=True)
+    entity          = db.Column(db.Text, nullable=True)
+    diet            = db.Column(db.Text, nullable=True)
+
+
 # ─── MANUAL ASSOCIATION ───────────────────────────────────────────────────────
 
 class ManualAssociation(db.Model):

@@ -1787,6 +1787,358 @@ def normalize_hotel(raw):
     return None
 
 
+
+
+
+@rooming_bp.route('/upload-activities', methods=['POST'])
+def upload_activities():
+    """Import file attivita: ogni foglio = attivita.
+    Colonne: Last Name, First Name, Composite (opzionale, contiene email tra <>)"""
+    from models.models import Activity, ActivityParticipant
+    import re as _re2
+
+    f = request.files.get('file')
+    if not f or not f.filename.endswith('.xlsx'):
+        flash('Seleziona un file .xlsx valido.', 'error')
+        return redirect(url_for('rooming.index'))
+
+    batch_id    = request.form.get('batch_id', '')
+    activity_id = request.form.get('activity_id', '')
+
+    try:
+        xl = pd.ExcelFile(f)
+    except Exception as e:
+        flash(f'Errore lettura file: {e}', 'error')
+        return redirect(url_for('rooming.index'))
+
+    email_map   = {}
+    rooming_map = {}
+    if batch_id:
+        for r in RoomingList.query.filter_by(import_batch=batch_id).all():
+            if r.email:
+                email_map[r.email.strip().lower()] = r.id
+            if r.last_name:
+                key = ((r.last_name or '').strip().upper(),
+                       (r.first_name or '').strip().upper())
+                rooming_map[key] = r.id
+
+    def find_rooming_id(last_name, first_name, composite):
+        if composite:
+            m = _re2.search(r'<([^>]+)>', composite)
+            if m:
+                email = m.group(1).strip().lower()
+                if email in email_map:
+                    return email_map[email]
+        key = (last_name.upper(), first_name.upper())
+        if key in rooming_map:
+            return rooming_map[key]
+        for (ln, fn), rid in rooming_map.items():
+            if ln == last_name.upper():
+                return rid
+        return None
+
+    imported_activities = 0
+    imported_participants = 0
+
+    for sheet_name in xl.sheet_names:
+        df = pd.read_excel(xl, sheet_name=sheet_name, header=None)
+
+        last_col = first_col = composite_col = None
+        data_start = 0
+
+        for i in range(min(10, len(df))):
+            row_vals = [str(df.iloc[i, c]).strip().lower().replace(' ', '').replace('\n', '')
+                        for c in range(len(df.columns))]
+            for ci, val in enumerate(row_vals):
+                if val in ('lastname', 'cognome', 'lastlname'):    last_col = ci
+                if val in ('firstname', 'nome', 'firstname'):      first_col = ci
+                if val in ('composite', 'email', 'compositename'): composite_col = ci
+            if last_col is not None and first_col is not None:
+                data_start = i + 1
+                break
+
+        if last_col is None or first_col is None:
+            continue
+
+        if activity_id:
+            activity = Activity.query.get(int(activity_id))
+            if not activity:
+                flash('Attivita non trovata.', 'error')
+                return redirect(url_for('rooming.activities_page'))
+            ActivityParticipant.query.filter_by(activity_id=activity.id).delete()
+            db.session.flush()
+        else:
+            date_match = _re2.search(r'(\d{2}\.\d{2}\.\d{4})', sheet_name)
+            activity_date = None
+            activity_name = sheet_name.strip()
+            if date_match:
+                try:
+                    from datetime import datetime as _dt
+                    activity_date = _dt.strptime(date_match.group(1), '%d.%m.%Y').date()
+                    activity_name = sheet_name[date_match.end():].strip(' -').strip()
+                except Exception:
+                    pass
+            existing = Activity.query.filter_by(name=activity_name, date=activity_date).first()
+            if existing:
+                ActivityParticipant.query.filter_by(activity_id=existing.id).delete()
+                db.session.flush()
+                activity = existing
+            else:
+                activity = Activity(name=activity_name, date=activity_date, import_batch=batch_id)
+                db.session.add(activity)
+                db.session.flush()
+
+        for i in range(data_start, len(df)):
+            row = df.iloc[i]
+            last_name  = str(row[last_col]).strip()  if not pd.isna(row[last_col])  else ''
+            first_name = str(row[first_col]).strip() if not pd.isna(row[first_col]) else ''
+            composite  = str(row[composite_col]).strip() if composite_col is not None and not pd.isna(row[composite_col]) else ''
+
+            if not last_name or last_name.lower() == 'nan':
+                continue
+
+            rooming_id = find_rooming_id(last_name, first_name, composite)
+
+            ap = ActivityParticipant(
+                activity_id=activity.id,
+                rooming_list_id=rooming_id,
+                last_name=last_name,
+                first_name=first_name,
+            )
+            db.session.add(ap)
+            imported_participants += 1
+
+        imported_activities += 1
+
+    db.session.commit()
+    flash(f'Import: {imported_activities} attivita, {imported_participants} partecipanti.', 'success')
+    if activity_id:
+        return redirect(url_for('rooming.activities_page'))
+    return redirect(url_for('rooming.index'))
+
+
+@rooming_bp.route('/activity-template')
+def download_activity_template():
+    """Scarica il template Excel per l'import partecipanti attività."""
+    import os
+    template_path = os.path.join(os.path.dirname(__file__), '..', 'Activity_Template.xlsx')
+    return send_file(os.path.abspath(template_path),
+                     as_attachment=True,
+                     download_name='Activity_Import_Template.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@rooming_bp.route('/activities')
+def activities_page():
+    """Pagina gestione attività."""
+    from models.models import Activity
+    activities = Activity.query.order_by(Activity.date, Activity.name).all()
+    # Trova batch più recente per la ricerca partecipanti
+    batches = get_batches()
+    batch_id = batches[0][0] if batches else ''
+    result = [{'id': a.id, 'name': a.name,
+               'date': a.date, 'n_participants': len(a.participants)}
+              for a in activities]
+    return render_template('activities.html', activities=result, batch_id=batch_id)
+
+
+@rooming_bp.route('/api/activity/<int:activity_id>/participants')
+def api_activity_participants(activity_id):
+    """Partecipanti di un'attività con dati dalla rooming list."""
+    from models.models import Activity, ActivityParticipant
+    activity = Activity.query.get_or_404(activity_id)
+    result = []
+    for ap in sorted(activity.participants,
+                     key=lambda x: (x.last_name or '').upper()):
+        row = {
+            'ap_id':      ap.id,
+            'last_name':  ap.last_name or '',
+            'first_name': ap.first_name or '',
+            'entity':     ap.entity or '',
+            'diet':       ap.diet or '',
+            'matched':    ap.rooming_list_id is not None,
+            'hotel': '', 'arrival_mode': '', 'billing': '',
+            'check_in': '', 'check_out': '',
+        }
+        if ap.rooming_list_id:
+            r = RoomingList.query.get(ap.rooming_list_id)
+            if r:
+                row.update({
+                    'hotel':        r.hotel or '',
+                    'arrival_mode': r.arrival_mode or '',
+                    'billing':      r.billing or '',
+                    'check_in':     cell_val('check_in', r),
+                    'check_out':    cell_val('check_out', r),
+                    'diet':         ap.diet or r.diet_restrictions or '',
+                })
+        result.append(row)
+    return jsonify({
+        'activity': activity.name,
+        'date': activity.date.strftime('%d/%m/%Y') if activity.date else None,
+        'participants': result
+    })
+
+
+@rooming_bp.route('/api/activity-add-participant', methods=['POST'])
+def api_activity_add_participant():
+    """Aggiunge un partecipante a un'attività."""
+    from models.models import Activity, ActivityParticipant
+    data         = request.get_json()
+    activity_id  = data.get('activity_id')
+    rooming_id   = data.get('rooming_list_id')
+
+    activity = Activity.query.get(activity_id)
+    if not activity:
+        return jsonify({'ok': False, 'error': 'Attività non trovata'})
+
+    # Evita duplicati
+    existing = ActivityParticipant.query.filter_by(
+        activity_id=activity_id, rooming_list_id=rooming_id).first()
+    if existing:
+        return jsonify({'ok': False, 'error': 'Partecipante già presente'})
+
+    r = RoomingList.query.get(rooming_id)
+    ap = ActivityParticipant(
+        activity_id=activity_id,
+        rooming_list_id=rooming_id,
+        last_name=r.last_name if r else None,
+        first_name=r.first_name if r else None,
+        diet=r.diet_restrictions if r else None,
+    )
+    db.session.add(ap)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@rooming_bp.route('/api/activity-remove-participant/<int:ap_id>', methods=['DELETE'])
+def api_activity_remove_participant(ap_id):
+    """Rimuove un partecipante da un'attività."""
+    from models.models import ActivityParticipant
+    ap = ActivityParticipant.query.get(ap_id)
+    if not ap:
+        return jsonify({'ok': False, 'error': 'Non trovato'})
+    db.session.delete(ap)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@rooming_bp.route('/export-activity/<int:activity_id>')
+def export_activity(activity_id):
+    """Excel lista partecipanti di un'attività."""
+    from models.models import Activity
+    activity = Activity.query.get_or_404(activity_id)
+
+    COLS = [
+        ('last_name',    'Cognome'),
+        ('first_name',   'Nome'),
+        ('hotel',        'Hotel'),
+        ('check_in',     'Check In'),
+        ('check_out',    'Check Out'),
+        ('arrival_mode', 'Arrivo'),
+        ('billing',      'Billing'),
+        ('diet',         'Dieta'),
+    ]
+
+    wb  = openpyxl.Workbook()
+    ws  = wb.active
+    ws.title = activity.name[:30]
+
+    hdr_font = Font(name='Calibri', bold=True, color='FFFFFF', size=10)
+    hdr_fill = PatternFill('solid', start_color='1F3864')
+    norm_font = Font(name='Calibri', size=10)
+    center = Alignment(horizontal='center', vertical='center')
+    left   = Alignment(horizontal='left',   vertical='center')
+    thin   = Border(left=Side(style='thin'), right=Side(style='thin'),
+                    top=Side(style='thin'),  bottom=Side(style='thin'))
+
+    n_cols = len(COLS)
+
+    # Titolo
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
+    tc = ws.cell(row=1, column=1,
+                 value=f'{activity.name} — {activity.date.strftime("%d/%m/%Y") if activity.date else ""}')
+    tc.font = Font(name='Calibri', bold=True, size=14, color='1F3864')
+    tc.alignment = center
+    ws.row_dimensions[1].height = 26
+
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=n_cols)
+    ws.cell(row=2, column=1,
+            value=f'Generato il {datetime.now().strftime("%d/%m/%Y %H:%M")}  |  {len(activity.participants)} partecipanti'
+            ).font = Font(name='Calibri', size=9, italic=True)
+    ws.row_dimensions[2].height = 14
+
+    # Header
+    for col, (_, label) in enumerate(COLS, 1):
+        c = ws.cell(row=3, column=col, value=label)
+        c.font = hdr_font; c.fill = hdr_fill
+        c.alignment = center; c.border = thin
+    ws.row_dimensions[3].height = 18
+
+    # Righe
+    participants = sorted(activity.participants,
+                          key=lambda x: (x.last_name or '').upper())
+    for rn, ap in enumerate(participants, 4):
+        r = RoomingList.query.get(ap.rooming_list_id) if ap.rooming_list_id else None
+        vals = {
+            'last_name':    ap.last_name or '',
+            'first_name':   ap.first_name or '',
+            'hotel':        r.hotel if r else '',
+            'check_in':     cell_val('check_in', r) if r else '',
+            'check_out':    cell_val('check_out', r) if r else '',
+            'arrival_mode': r.arrival_mode if r else '',
+            'billing':      r.billing if r else '',
+            'diet':         ap.diet or (r.diet_restrictions if r else '') or '',
+        }
+        for col, (field, _) in enumerate(COLS, 1):
+            c = ws.cell(row=rn, column=col, value=vals.get(field, ''))
+            c.font = norm_font; c.alignment = left; c.border = thin
+        ws.row_dimensions[rn].height = 15
+
+    col_widths = {'last_name':20,'first_name':16,'hotel':22,'check_in':12,
+                  'check_out':12,'arrival_mode':12,'billing':18,'diet':25}
+    for col, (field, _) in enumerate(COLS, 1):
+        ws.column_dimensions[get_column_letter(col)].width = col_widths.get(field, 14)
+    ws.freeze_panes = 'A4'
+
+    buf = io.BytesIO()
+    wb.save(buf); buf.seek(0)
+    safe = activity.name.replace(' ', '_')[:30]
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return send_file(buf, as_attachment=True,
+                     download_name=f'Activity_{safe}_{ts}.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@rooming_bp.route('/api/activities')
+def api_activities():
+    """Lista tutte le attività."""
+    from models.models import Activity
+    activities = Activity.query.order_by(Activity.date, Activity.name).all()
+    return jsonify([{
+        'id':   a.id,
+        'name': a.name,
+        'date': a.date.strftime('%d/%m/%Y') if a.date else None,
+        'n_participants': len(a.participants),
+    } for a in activities])
+
+@rooming_bp.route('/api/participant-agenda/<int:rooming_id>')
+def api_participant_agenda(rooming_id):
+    """Tutte le attività di un partecipante."""
+    from models.models import ActivityParticipant
+    r = RoomingList.query.get_or_404(rooming_id)
+    participations = ActivityParticipant.query.filter_by(rooming_list_id=rooming_id)\
+                                              .join(ActivityParticipant.activity)\
+                                              .order_by(db.text('activities.date, activities.name'))\
+                                              .all()
+    return jsonify({
+        'name': f'{r.first_name} {r.last_name}',
+        'hotel': r.hotel or '',
+        'agenda': [{'activity': ap.activity.name,
+                    'date': ap.activity.date.strftime('%d/%m/%Y') if ap.activity.date else None}
+                   for ap in participations]
+    })
+
+
 @rooming_bp.route('/upload-contracts', methods=['POST'])
 def upload_contracts():
     from models.models import HotelContract

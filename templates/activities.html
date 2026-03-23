@@ -1,0 +1,235 @@
+{% extends 'base.html' %}
+{% block title %}Gestione Attività — Nexus Rooming{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <a href="{{ url_for('rooming.index') }}" class="back-link">← Home</a>
+    <h1>Gestione Attività</h1>
+    <a href="{{ url_for('rooming.download_activity_template') }}" class="btn-sm btn-export" style="margin-top:8px">⬇ Template import</a>
+</div>
+
+<!-- Lista attività -->
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:24px">
+{% for a in activities %}
+<div class="card" style="padding:14px 16px;cursor:pointer" onclick="selectActivity({{ a.id }}, '{{ a.name }}', '{{ a.date or '' }}')">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+        <span style="font-size:13px;font-weight:600;color:var(--primary)">{{ a.name }}</span>
+        <span style="font-size:11px;color:var(--text-muted);background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 6px">
+            {{ a.date.strftime('%d/%m') if a.date else '—' }}
+        </span>
+    </div>
+    <div style="font-size:12px;color:var(--text-muted)">
+        <span id="count-{{ a.id }}" style="color:var(--success);font-weight:500">{{ a.n_participants }}</span> partecipanti
+    </div>
+</div>
+{% endfor %}
+</div>
+
+<!-- Dettaglio attività selezionata -->
+<div id="activityDetail" style="display:none">
+    <div class="card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+            <div>
+                <h2 id="activityTitle" style="margin:0"></h2>
+                <p id="activityDate" style="font-size:12px;color:var(--text-muted);margin:2px 0 0"></p>
+            </div>
+            <div style="display:flex;gap:8px">
+                <button class="btn-primary" onclick="openAddModal()" style="font-size:13px;padding:6px 14px">+ Aggiungi</button>
+                <button class="btn-sm btn-export" onclick="openImportModal()" style="font-size:13px">⬆ Importa lista</button>
+                <a id="exportActivityBtn" href="#" class="btn-sm btn-export">⬇ Excel</a>
+            </div>
+        </div>
+
+        <div id="participantsList" style="overflow-x:auto">
+            <p style="color:var(--text-muted);font-size:13px">Seleziona un'attività</p>
+        </div>
+    </div>
+</div>
+
+<!-- Modale aggiunta partecipante -->
+<div id="addModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:10px;padding:28px 32px;max-width:480px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+        <h3 style="font-size:16px;font-weight:600;color:var(--primary);margin-bottom:14px">Aggiungi partecipante</h3>
+        <input type="text" id="addSearch" placeholder="Cerca per cognome o nome…"
+            oninput="searchParticipant(this.value)"
+            style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;margin-bottom:8px;box-sizing:border-box">
+        <div id="addResults" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;display:none;margin-bottom:14px"></div>
+        <div id="addSelected" style="display:none;background:#EAF3DE;border:1px solid #639922;border-radius:6px;padding:8px 12px;font-size:13px;color:#27500A;margin-bottom:14px"></div>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+            <button class="btn-sm" onclick="closeAddModal()">Annulla</button>
+            <button id="addSaveBtn" class="btn-primary" onclick="saveParticipant()" disabled>+ Aggiungi</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modale import lista -->
+<div id="importModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:10px;padding:28px 32px;max-width:480px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+        <h3 style="font-size:16px;font-weight:600;color:var(--primary);margin-bottom:6px">Importa lista partecipanti</h3>
+        <p id="importActivityName" style="font-size:13px;color:#0369A1;font-weight:500;margin-bottom:14px"></p>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:12px">
+            File Excel con colonne: <strong>Last Name</strong>, <strong>First Name</strong>, <strong>Composite</strong> (opzionale).<br>
+            Sovrascrive i partecipanti esistenti per questa attività.
+        </p>
+        <form method="POST" action="{{ url_for('rooming.upload_activities') }}" enctype="multipart/form-data">
+            <input type="hidden" name="activity_id" id="importActivityId">
+            <input type="hidden" name="batch_id" value="{{ batch_id }}">
+            <input type="file" name="file" accept=".xlsx" required style="font-size:13px;width:100%;margin-bottom:14px">
+            <div style="display:flex;gap:10px;justify-content:flex-end">
+                <button type="button" class="btn-sm" onclick="closeImportModal()">Annulla</button>
+                <button type="submit" class="btn-primary">⬆ Importa</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<style>
+.part-table { width:100%;border-collapse:collapse;font-size:12px; }
+.part-table th { background:#F8FAFC;font-weight:600;font-size:11px;color:var(--text-muted);
+    text-transform:uppercase;letter-spacing:.4px;padding:8px 10px;
+    border-bottom:2px solid var(--border);white-space:nowrap; }
+.part-table td { padding:7px 10px;border-bottom:1px solid var(--border); }
+.part-table tr:hover td { background:#F8FAFC; }
+.btn-remove { background:none;border:none;color:var(--danger);cursor:pointer;font-size:12px;padding:2px 6px; }
+.btn-remove:hover { text-decoration:underline; }
+</style>
+
+<script>
+let currentActivityId   = null;
+let selectedRoomingId   = null;
+
+function selectActivity(id, name, date) {
+    currentActivityId = id;
+    document.getElementById('activityTitle').textContent = name;
+    document.getElementById('activityDate').textContent  = date;
+    document.getElementById('activityDetail').style.display = 'block';
+    document.getElementById('exportActivityBtn').href = `/export-activity/${id}`;
+    loadParticipants(id);
+    document.getElementById('activityDetail').scrollIntoView({behavior:'smooth'});
+}
+
+function openImportModal() {
+    document.getElementById('importActivityId').value   = currentActivityId;
+    document.getElementById('importActivityName').textContent =
+        document.getElementById('activityTitle').textContent;
+    document.getElementById('importModal').style.display = 'flex';
+}
+function closeImportModal() { document.getElementById('importModal').style.display = 'none'; }
+
+document.addEventListener('click', e => {
+    if (e.target === document.getElementById('importModal'))  closeImportModal();
+    if (e.target === document.getElementById('addModal'))     closeAddModal();
+});
+
+async function loadParticipants(id) {
+    const res  = await fetch(`/api/activity/${id}/participants`);
+    const data = await res.json();
+    const box  = document.getElementById('participantsList');
+
+    if (!data.participants.length) {
+        box.innerHTML = '<p style="color:var(--text-muted);font-size:13px;padding:8px">Nessun partecipante.</p>';
+        return;
+    }
+
+    let html = '<table class="part-table"><thead><tr>';
+    html += '<th>Cognome</th><th>Nome</th><th>Hotel</th><th>Check In</th><th>Check Out</th><th>Arrivo</th><th>Dieta</th><th>Match</th><th></th>';
+    html += '</tr></thead><tbody>';
+
+    data.participants.forEach(p => {
+        const match = p.matched
+            ? '<span style="color:var(--success)">✓</span>'
+            : '<span style="color:var(--danger)">✗</span>';
+        html += `<tr>
+            <td style="font-weight:500">${p.last_name}</td>
+            <td>${p.first_name}</td>
+            <td>${p.hotel||'—'}</td>
+            <td>${p.check_in||'—'}</td>
+            <td>${p.check_out||'—'}</td>
+            <td>${p.arrival_mode||'—'}</td>
+            <td>${p.diet||'—'}</td>
+            <td style="text-align:center">${match}</td>
+            <td><button class="btn-remove" onclick="removeParticipant(${p.ap_id})">✕</button></td>
+        </tr>`;
+    });
+
+    html += '</tbody></table>';
+    box.innerHTML = html;
+
+    // Aggiorna contatore nella card
+    const countEl = document.getElementById(`count-${id}`);
+    if (countEl) countEl.textContent = data.participants.length;
+}
+
+// ── Aggiungi partecipante ─────────────────────────────────────────────────
+function openAddModal() {
+    selectedRoomingId = null;
+    document.getElementById('addSearch').value = '';
+    document.getElementById('addResults').style.display = 'none';
+    document.getElementById('addResults').innerHTML = '';
+    document.getElementById('addSelected').style.display = 'none';
+    document.getElementById('addSaveBtn').disabled = true;
+    document.getElementById('addModal').style.display = 'flex';
+}
+function closeAddModal() { document.getElementById('addModal').style.display = 'none'; }
+
+async function searchParticipant(q) {
+    if (q.length < 2) { document.getElementById('addResults').style.display='none'; return; }
+    const res  = await fetch(`/api/search-participants/{{ batch_id }}?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    const box  = document.getElementById('addResults');
+    box.innerHTML = '';
+    if (!data.results.length) {
+        box.innerHTML = '<p style="padding:8px 12px;color:var(--text-muted);font-size:12px">Nessun risultato</p>';
+    } else {
+        data.results.forEach(p => {
+            const div = document.createElement('div');
+            div.style = 'padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border)';
+            div.textContent = `${p.last_name} ${p.first_name} — ${p.hotel||'senza hotel'}`;
+            div.onmouseenter = () => div.style.background = '#F0F9FF';
+            div.onmouseleave = () => div.style.background = '';
+            div.onclick = () => {
+                selectedRoomingId = p.id;
+                document.getElementById('addSearch').value = `${p.last_name} ${p.first_name}`;
+                box.style.display = 'none';
+                const sel = document.getElementById('addSelected');
+                sel.textContent = `${p.last_name} ${p.first_name} — ${p.hotel||'—'}`;
+                sel.style.display = 'block';
+                document.getElementById('addSaveBtn').disabled = false;
+            };
+            box.appendChild(div);
+        });
+    }
+    box.style.display = 'block';
+}
+
+async function saveParticipant() {
+    if (!selectedRoomingId || !currentActivityId) return;
+    const btn = document.getElementById('addSaveBtn');
+    btn.textContent = '⏳…'; btn.disabled = true;
+    const res = await fetch('/api/activity-add-participant', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({activity_id: currentActivityId, rooming_list_id: selectedRoomingId})
+    });
+    const data = await res.json();
+    if (data.ok) {
+        closeAddModal();
+        loadParticipants(currentActivityId);
+    } else {
+        alert('Errore: ' + (data.error || 'sconosciuto'));
+    }
+    btn.textContent = '+ Aggiungi'; btn.disabled = false;
+}
+
+// ── Rimuovi partecipante ──────────────────────────────────────────────────
+async function removeParticipant(apId) {
+    if (!confirm('Rimuovere questo partecipante?')) return;
+    const res = await fetch(`/api/activity-remove-participant/${apId}`, {method:'DELETE'});
+    const data = await res.json();
+    if (data.ok) loadParticipants(currentActivityId);
+}
+
+document.addEventListener('click', e => {
+    if (e.target === document.getElementById('addModal')) closeAddModal();
+});
+</script>
+{% endblock %}
