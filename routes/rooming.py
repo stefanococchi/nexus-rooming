@@ -1661,8 +1661,12 @@ def api_categories(batch_id):
 
 @rooming_bp.route('/report-transfer/<path:batch_id>', methods=['POST'])
 def report_transfer(batch_id):
-    """Excel transfer: righe=partecipanti, colonne=notti, no CXL."""
+    """Excel transfer: righe=partecipanti, colonne=notti, no CXL.
+    Le spouse (status_spouse=Yes) ereditano le notti del titolare via internal_parent_reference.
+    """
     from sqlalchemy import or_
+    import re as _re
+
     hotels = request.form.getlist('hotels')
 
     q = RoomingList.query.filter_by(import_batch=batch_id)\
@@ -1687,6 +1691,106 @@ def report_transfer(batch_id):
         ('night_fri_3apr',  '03/04'),
         ('night_sat_4apr',  '04/04'),
     ]
+
+    # Mappa internal_reference -> riga per tutto il batch (per lookup spouse)
+    all_batch = RoomingList.query.filter_by(import_batch=batch_id)\
+                                 .filter(RoomingList.registration_state != 'CXL').all()
+    ref_map = {str(r.internal_reference).strip(): r
+               for r in all_batch if r.internal_reference}
+
+
+    def get_nights(r):
+        """Restituisce dict {field: bool} con le notti effettive del partecipante.
+        Se il partecipante non ha notti, cerca il compagno di stanza e usa le sue.
+        La logica è simmetrica: non importa chi è il titolare.
+        Gestisce anche night_no_need=Yes senza notti proprie."""
+
+        own_nights = {f: bool(getattr(r, f)) for f, _ in NIGHTS}
+        if any(own_nights.values()):
+            return own_nights
+
+        # Non ha notti — cerca compagno di stanza solo se:
+        # - è spouse (status_spouse=Yes), oppure
+        # - ha night_no_need=Yes (condivide camera ma non ha notti proprie)
+        is_spouse   = (r.status_spouse or '').strip().lower() == 'yes'
+        is_no_need  = (r.night_no_need or '').strip().lower() == 'yes'
+        if not is_spouse and not is_no_need:
+            return own_nights
+
+        # 1. Via internal_parent_reference → cerca titolare
+        if r.internal_parent_reference:
+            parent = ref_map.get(str(r.internal_parent_reference).strip())
+            if parent and any(bool(getattr(parent, f)) for f, _ in NIGHTS):
+                return {f: bool(getattr(parent, f)) for f, _ in NIGHTS}
+
+            # 1b. Stesso parent_ref — cerca un altro partecipante con stesso parent che ha notti
+            parent_ref_str = str(r.internal_parent_reference).strip()
+            for candidate in all_batch:
+                if candidate.id == r.id:
+                    continue
+                if str(candidate.internal_parent_reference or '').strip() == parent_ref_str or \
+                   str(candidate.internal_reference or '').strip() == parent_ref_str:
+                    cand_nights = {f: bool(getattr(candidate, f)) for f, _ in NIGHTS}
+                    if any(cand_nights.values()):
+                        return cand_nights
+
+        # 2. Cerca nel campo upgrade del batch chi ha "DOUBLE ROOM WITH / TWIN ROOM WITH <nome o cognome>"
+        first = (r.first_name or '').strip().lower()
+        last  = (r.last_name or '').strip().lower()
+        for candidate in all_batch:
+            if candidate.id == r.id:
+                continue
+            upgrade_text = (candidate.upgrade or '').lower()
+            if any(kw in upgrade_text for kw in ('double room with', 'twin room with', 'shared room with')):
+                if last in upgrade_text or (first and first in upgrade_text):
+                    candidate_nights = {f: bool(getattr(candidate, f)) for f, _ in NIGHTS}
+                    if any(candidate_nights.values()):
+                        return candidate_nights
+                    # Anche il candidato non ha notti — prova il suo parent
+                    if candidate.internal_parent_reference:
+                        cp = ref_map.get(str(candidate.internal_parent_reference).strip())
+                        if cp:
+                            cp_nights = {f: bool(getattr(cp, f)) for f, _ in NIGHTS}
+                            if any(cp_nights.values()):
+                                return cp_nights
+
+        # 3. Cerca nel campo upgrade della spouse stessa
+        upgrade_text = (r.upgrade or '').lower()
+        if any(kw in upgrade_text for kw in ('double room with', 'twin room with', 'shared room with',
+                                              'wife of', 'spouse of')):
+            m = _re.search(r'(?:double|twin|shared)\s+room\s+with\s+([\w\s]+)|'
+                           r'(?:wife|spouse)\s+of\s+([\w\s]+)',
+                           upgrade_text, _re.IGNORECASE)
+            if m:
+                name_str = (m.group(1) or m.group(2) or '').strip().lower()
+                name_parts = name_str.split()
+                for candidate in all_batch:
+                    if candidate.id == r.id:
+                        continue
+                    cln = (candidate.last_name or '').lower()
+                    cfn = (candidate.first_name or '').lower()
+                    if any(p == cln or p == cfn for p in name_parts):
+                        candidate_nights = {f: bool(getattr(candidate, f)) for f, _ in NIGHTS}
+                        if any(candidate_nights.values()):
+                            return candidate_nights
+
+        # 4. Fallback: stesso cognome + stesso hotel + non spouse + ha notti
+        spouse_last  = (r.last_name or '').strip().lower()
+        spouse_hotel = (r.hotel or '').strip().lower()
+        for candidate in all_batch:
+            if candidate.id == r.id:
+                continue
+            cand_last = (candidate.last_name or '').strip().lower()
+            cand_hotel = (candidate.hotel or '').strip().lower()
+            cand_nights = {f: bool(getattr(candidate, f)) for f, _ in NIGHTS}
+            if cand_last == spouse_last and \
+               cand_hotel == spouse_hotel and \
+               (candidate.status_spouse or '').strip().lower() != 'yes':
+                if any(cand_nights.values()):
+                    return cand_nights
+
+        # Nessun compagno trovato con notti — vuoto
+        return {f: False for f, _ in NIGHTS}
 
     wb  = openpyxl.Workbook()
     ws  = wb.active
@@ -1741,8 +1845,9 @@ def report_transfer(batch_id):
         ws.cell(row=rn, column=3).border = thin
         ws.cell(row=rn, column=3).alignment = left
 
+        nights = get_nights(r)
         for ni, (field, _) in enumerate(NIGHTS):
-            val = 'X' if getattr(r, field) else ''
+            val = 'X' if nights[field] else ''
             c = ws.cell(row=rn, column=4+ni, value=val)
             c.font = norm_font; c.border = thin; c.alignment = center
             if val:
