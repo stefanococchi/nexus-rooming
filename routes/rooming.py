@@ -104,7 +104,8 @@ EXPORT_COLS = [
     ('change_date',          'Change Date'),
 ]
 
-DIFF_FIELDS = [f for f, _ in EXPORT_COLS]
+VIRTUAL_FIELDS = {'check_in', 'check_out'}
+DIFF_FIELDS = [f for f, _ in EXPORT_COLS if f not in VIRTUAL_FIELDS]
 
 COL_WIDTHS = {
     'title': 6, 'last_name': 18, 'first_name': 16,
