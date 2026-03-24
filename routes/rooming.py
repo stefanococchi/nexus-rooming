@@ -105,7 +105,19 @@ EXPORT_COLS = [
 ]
 
 VIRTUAL_FIELDS = {'check_in', 'check_out'}
-DIFF_FIELDS = [f for f, _ in EXPORT_COLS if f not in VIRTUAL_FIELDS]
+DIFF_FIELDS = [
+    # Campi originali da EXPORT_COLS
+    'title', 'last_name', 'first_name', 'comment', 'email', 'phone',
+    'billing', 'company_category', 'upgrade', 'arrival_mode',
+    'need_visa', 'visa_birth_date', 'visa_birth_place', 'visa_passport',
+    'visa_delivery_date', 'visa_expiration_date',
+    'latest_changes', 'change_type', 'change_date',
+    # Aggiunti: hotel, notti, stato
+    'registration_state', 'hotel',
+    'night_no_need',
+    'night_sat_28mar', 'night_sun_29mar', 'night_mon_30mar', 'night_tue_31mar',
+    'night_wed_1apr', 'night_thu_2apr', 'night_fri_3apr', 'night_sat_4apr',
+]
 
 COL_WIDTHS = {
     'title': 6, 'last_name': 18, 'first_name': 16,
