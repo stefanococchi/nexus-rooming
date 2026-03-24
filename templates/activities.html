@@ -9,23 +9,44 @@
 </div>
 
 <!-- Lista attività -->
-<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:24px">
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(600px,1fr));gap:12px;margin-bottom:24px">
 {% for a in activities %}
-<div class="card" style="padding:14px 16px;cursor:pointer" onclick="selectActivity({{ a.id }}, '{{ a.name }}', '{{ a.date or '' }}')">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-        <span style="font-size:13px;font-weight:600;color:var(--primary)">{{ a.name }}</span>
-        <span style="font-size:11px;color:var(--text-muted);background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 6px">
-            {{ a.date.strftime('%d/%m') if a.date else '—' }}
-        </span>
+<div class="card" style="padding:14px 16px">
+    <!-- Header card -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:10px">
+        <div style="display:flex;align-items:center;gap:8px;flex:1">
+            <span style="font-size:11px;color:var(--text-muted);background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 7px;white-space:nowrap">
+                {{ a.date.strftime('%d/%m') if a.date else '—' }}
+            </span>
+            <span id="name-display-{{ a.id }}"
+                  style="font-size:14px;font-weight:600;color:var(--primary);cursor:pointer"
+                  ondblclick="startEditName({{ a.id }}, this)"
+                  title="Doppio click per modificare">{{ a.name }}</span>
+            <input id="name-input-{{ a.id }}"
+                   style="display:none;font-size:14px;font-weight:600;color:var(--primary);
+                          border:1px solid var(--accent);border-radius:4px;padding:2px 8px;flex:1"
+                   onblur="saveActivityName({{ a.id }})"
+                   onkeydown="if(event.key==='Enter') saveActivityName({{ a.id }}); if(event.key==='Escape') cancelEditName({{ a.id }})">
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+            <button class="btn-sm" onclick="selectActivity({{ a.id }}, '{{ a.name }}', '{{ a.date or '' }}')" style="font-size:11px">+ Aggiungi</button>
+            <button class="btn-sm btn-export" onclick="selectActivityImport({{ a.id }}, '{{ a.name }}')" style="font-size:11px">⬆ Import</button>
+            <a href="/export-activity/{{ a.id }}" class="btn-sm btn-export" style="font-size:11px">⬇ Excel</a>
+        </div>
     </div>
-    <div style="font-size:12px;color:var(--text-muted)">
-        <span id="count-{{ a.id }}" style="color:var(--success);font-weight:500">{{ a.n_participants }}</span> partecipanti
+    <!-- Preview partecipanti inline -->
+    <div id="inline-{{ a.id }}" style="font-size:11px;color:var(--text-muted)">
+        <span style="color:var(--success);font-weight:500" id="count-{{ a.id }}">{{ a.n_participants }}</span> partecipanti
+        {% if a.n_participants > 0 %}
+        <button onclick="toggleInline({{ a.id }})" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:11px;margin-left:6px">▶ mostra</button>
+        {% endif %}
     </div>
+    <div id="inline-list-{{ a.id }}" style="display:none;margin-top:8px"></div>
 </div>
 {% endfor %}
 </div>
 
-<!-- Dettaglio attività selezionata -->
+<!-- Pannello dettaglio (per aggiunta manuale) -->
 <div id="activityDetail" style="display:none">
     <div class="card">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
@@ -34,14 +55,14 @@
                 <p id="activityDate" style="font-size:12px;color:var(--text-muted);margin:2px 0 0"></p>
             </div>
             <div style="display:flex;gap:8px">
-                <button class="btn-primary" onclick="openAddModal()" style="font-size:13px;padding:6px 14px">+ Aggiungi</button>
+                <button class="btn-primary" onclick="openAddModal()" style="font-size:13px;padding:6px 14px">+ Aggiungi partecipante</button>
                 <button class="btn-sm btn-export" onclick="openImportModal()" style="font-size:13px">⬆ Importa lista</button>
                 <a id="exportActivityBtn" href="#" class="btn-sm btn-export">⬇ Excel</a>
+                <button class="btn-sm" onclick="document.getElementById('activityDetail').style.display='none'">✕</button>
             </div>
         </div>
-
         <div id="participantsList" style="overflow-x:auto">
-            <p style="color:var(--text-muted);font-size:13px">Seleziona un'attività</p>
+            <p style="color:var(--text-muted);font-size:13px">Caricamento…</p>
         </div>
     </div>
 </div>
@@ -97,6 +118,66 @@
 <script>
 let currentActivityId   = null;
 let selectedRoomingId   = null;
+
+// ── Edit nome attività ────────────────────────────────────────────────────
+function startEditName(id, el) {
+    const input = document.getElementById(`name-input-${id}`);
+    input.value = el.textContent.trim();
+    el.style.display = 'none';
+    input.style.display = 'inline-block';
+    input.focus();
+    input.select();
+}
+function cancelEditName(id) {
+    document.getElementById(`name-input-${id}`).style.display = 'none';
+    document.getElementById(`name-display-${id}`).style.display = '';
+}
+async function saveActivityName(id) {
+    const input   = document.getElementById(`name-input-${id}`);
+    const display = document.getElementById(`name-display-${id}`);
+    const newName = input.value.trim();
+    if (!newName) { cancelEditName(id); return; }
+    const res = await fetch(`/api/activity-rename/${id}`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: newName})
+    });
+    const data = await res.json();
+    if (data.ok) { display.textContent = newName; }
+    cancelEditName(id);
+}
+
+// ── Preview inline ────────────────────────────────────────────────────────
+const inlineLoaded = {};
+async function toggleInline(id) {
+    const box = document.getElementById(`inline-list-${id}`);
+    const btn = document.querySelector(`#inline-${id} button`);
+    if (box.style.display === 'none') {
+        if (!inlineLoaded[id]) {
+            const res  = await fetch(`/api/activity/${id}/participants`);
+            const data = await res.json();
+            box.innerHTML = data.participants.map(p =>
+                `<span style="display:inline-block;background:var(--bg);border:1px solid var(--border);
+                 border-radius:4px;padding:2px 8px;margin:2px;font-size:11px;
+                 color:${p.matched ? 'var(--text)' : 'var(--danger)'}">
+                 ${p.last_name} ${p.first_name}</span>`
+            ).join('');
+            inlineLoaded[id] = true;
+        }
+        box.style.display = 'block';
+        if (btn) btn.textContent = '▼ nascondi';
+    } else {
+        box.style.display = 'none';
+        if (btn) btn.textContent = '▶ mostra';
+    }
+}
+
+// ── Seleziona attività per aggiunta manuale ───────────────────────────────
+function selectActivityImport(id, name) {
+    currentActivityId = id;
+    document.getElementById('importActivityId').value   = id;
+    document.getElementById('importActivityName').textContent = name;
+    document.getElementById('importModal').style.display = 'flex';
+}
 
 function selectActivity(id, name, date) {
     currentActivityId = id;

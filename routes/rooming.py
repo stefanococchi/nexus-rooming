@@ -1917,6 +1917,21 @@ def upload_activities():
     return redirect(url_for('rooming.index'))
 
 
+@rooming_bp.route('/api/activity-rename/<int:activity_id>', methods=['POST'])
+def api_activity_rename(activity_id):
+    from models.models import Activity
+    data = request.get_json()
+    name = (data.get('name') or '').strip()
+    if not name:
+        return jsonify({'ok': False, 'error': 'Nome vuoto'})
+    a = Activity.query.get(activity_id)
+    if not a:
+        return jsonify({'ok': False, 'error': 'Non trovata'})
+    a.name = name
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
 @rooming_bp.route('/activity-template')
 def download_activity_template():
     """Scarica il template Excel per l'import partecipanti attività."""
