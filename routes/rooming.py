@@ -2435,6 +2435,7 @@ def api_associa_partner():
 
 
 
+@rooming_bp.route('/api/categories/<path:batch_id>')
 def api_categories(batch_id):
     """Ritorna le categorie azienda presenti nel batch, ordinate."""
     cats = db.session.execute(db.text("""
