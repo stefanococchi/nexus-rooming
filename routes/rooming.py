@@ -1932,6 +1932,136 @@ def api_activity_rename(activity_id):
     return jsonify({'ok': True})
 
 
+@rooming_bp.route('/export-all-activities')
+def export_all_activities():
+    """Excel con tutti i partecipanti di tutte le attività."""
+    from models.models import Activity, ActivityParticipant
+
+    activities = Activity.query.order_by(Activity.date, Activity.name).all()
+
+    # Colonne per export attività — sequenza ridotta
+    ALL_ACT_COLS = [
+        ('title',              'Title'),
+        ('last_name',          'Last Name'),
+        ('first_name',         'First Name'),
+        ('comment',            'Comment'),
+        ('email',              'Email'),
+        ('phone',              'Phone'),
+        ('billing',            'Billing'),
+        ('company_category',   'Category'),
+        ('upgrade',            'Upgrade'),
+        ('arrival_mode',       'Arrival Mode'),
+        ('check_in',           'Check In'),
+        ('check_out',          'Check Out'),
+        ('company_name',       'Company'),
+        ('company_country',    'Country'),
+        ('job_position',       'Job Position'),
+        ('company_subcategory','Sub Category'),
+        ('diet_restrictions',  'Diet Restriction'),
+        ('in_rooming',         'In Rooming List'),
+    ]
+
+    wb  = openpyxl.Workbook()
+    ws  = wb.active
+    ws.title = 'All Activities'
+
+    hdr_font  = Font(name='Calibri', bold=True, color='FFFFFF', size=10)
+    hdr_fill  = PatternFill('solid', start_color='1F3864')
+    norm_font = Font(name='Calibri', size=10)
+    warn_font = Font(name='Calibri', size=10, color='CC0000')
+    act_font  = Font(name='Calibri', bold=True, size=11, color='FFFFFF')
+    green_fill  = PatternFill('solid', start_color='C6EFCE')
+    yellow_fill = PatternFill('solid', start_color='FFEB9C')
+    red_fill    = PatternFill('solid', start_color='FFC7CE')
+    center = Alignment(horizontal='center', vertical='center')
+    left   = Alignment(horizontal='left',   vertical='center')
+    thin   = Border(left=Side(style='thin'), right=Side(style='thin'),
+                    top=Side(style='thin'),  bottom=Side(style='thin'))
+
+    n_cols  = len(ALL_ACT_COLS)
+    row_num = 1
+
+    # Titolo
+    ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=n_cols)
+    tc = ws.cell(row=row_num, column=1, value='TUTTI I PARTECIPANTI — TUTTE LE ATTIVITÀ')
+    tc.font = Font(name='Calibri', bold=True, size=14, color='1F3864')
+    tc.alignment = center
+    ws.row_dimensions[row_num].height = 26
+    row_num += 1
+
+    ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=n_cols)
+    ws.cell(row=row_num, column=1,
+            value=f'Generato il {datetime.now().strftime("%d/%m/%Y %H:%M")}'
+            ).font = Font(name='Calibri', size=9, italic=True)
+    ws.row_dimensions[row_num].height = 14
+    row_num += 1
+
+    for activity in activities:
+        parts = sorted(activity.participants,
+                       key=lambda x: (x.last_name or '').upper())
+        if not parts:
+            continue
+
+        # Intestazione attività
+        ws.merge_cells(start_row=row_num, start_column=1,
+                       end_row=row_num, end_column=n_cols)
+        hc = ws.cell(row=row_num, column=1,
+                     value=f'{activity.name.upper()}  —  {activity.date.strftime("%d/%m/%Y") if activity.date else ""}')
+        hc.font = act_font
+        hc.fill = PatternFill('solid', start_color='2F5496')
+        hc.alignment = left
+        ws.row_dimensions[row_num].height = 20
+        row_num += 1
+
+        # Header colonne
+        for col, (field, label) in enumerate(ALL_ACT_COLS, 1):
+            c = ws.cell(row=row_num, column=col, value=label)
+            c.font = hdr_font; c.fill = hdr_fill
+            c.alignment = center; c.border = thin
+        ws.row_dimensions[row_num].height = 18
+        row_num += 1
+
+        # Righe partecipanti
+        for ap in parts:
+            r = RoomingList.query.get(ap.rooming_list_id) if ap.rooming_list_id else None
+            in_rooming = 'Sì' if r else 'No'
+
+            is_cxl     = r.is_cxl if r else False
+            is_changed = (r.change_date or (r.latest_changes and str(r.latest_changes).strip())) if r else False
+            row_fill   = red_fill if is_cxl else (yellow_fill if is_changed else green_fill)
+
+            for col, (field, _) in enumerate(ALL_ACT_COLS, 1):
+                if field == 'diet_restrictions':
+                    val = (ap.diet or '') or (r.diet_restrictions if r else '') or ''
+                elif field == 'in_rooming':
+                    val = in_rooming
+                else:
+                    val = cell_val(field, r) if r else (ap.last_name if field == 'last_name' else
+                                                        ap.first_name if field == 'first_name' else '')
+                c = ws.cell(row=row_num, column=col, value=val)
+                c.font = norm_font if r else warn_font
+                c.fill = row_fill if r else PatternFill('solid', start_color='FFF2CC')
+                c.alignment = left; c.border = thin
+            ws.row_dimensions[row_num].height = 15
+            row_num += 1
+
+    # Larghezze
+    for col, (field, _) in enumerate(ALL_ACT_COLS, 1):
+        w = COL_WIDTHS.get(field, 14)
+        if field == 'diet_restrictions': w = 25
+        if field == 'in_rooming': w = 14
+        ws.column_dimensions[get_column_letter(col)].width = w
+
+    ws.freeze_panes = 'A3'
+
+    buf = io.BytesIO()
+    wb.save(buf); buf.seek(0)
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return send_file(buf, as_attachment=True,
+                     download_name=f'AllActivities_{ts}.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
 @rooming_bp.route('/activity-template')
 def download_activity_template():
     """Scarica il template Excel per l'import partecipanti attività."""
