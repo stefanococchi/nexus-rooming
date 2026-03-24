@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Log Override{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+  <div>
+    <h1 style="margin:0;font-size:22px;color:#1F3864">📝 Log Modifiche Manuali</h1>
+    <div style="font-size:12px;color:#888;margin-top:3px">
+      <strong>{{ total }}</strong> override attivi
+    </div>
+  </div>
+</div>
+
+{% if log_entries %}
+<div style="overflow-x:auto;border-radius:8px;border:1px solid #E2E8F0">
+  <table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead>
+      <tr style="background:#1F3864;color:#fff">
+        <th style="padding:10px 14px;text-align:left;font-weight:600">Data / Ora</th>
+        <th style="padding:10px 14px;text-align:left;font-weight:600">Utente</th>
+        <th style="padding:10px 14px;text-align:left;font-weight:600">Partecipante</th>
+        <th style="padding:10px 14px;text-align:left;font-weight:600">Ref</th>
+        <th style="padding:10px 14px;text-align:left;font-weight:600">Campo</th>
+        <th style="padding:10px 14px;text-align:left;font-weight:600">Valore originale</th>
+        <th style="padding:10px 14px;text-align:left;font-weight:600">Valore override</th>
+        <th style="padding:10px 14px;text-align:center;font-weight:600">Azioni</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in log_entries %}
+      <tr style="border-bottom:1px solid #E2E8F0;{% if loop.index is odd %}background:#F8FAFC{% else %}background:#fff{% endif %}"
+          id="row-{{ loop.index }}">
+        <td style="padding:9px 14px;white-space:nowrap;color:#64748B;font-size:12px">{{ e.modified_at }}</td>
+        <td style="padding:9px 14px;font-weight:500">{{ e.modified_by }}</td>
+        <td style="padding:9px 14px">{{ e.name }}</td>
+        <td style="padding:9px 14px;font-family:monospace;font-size:11px;color:#64748B">{{ e.ref }}</td>
+        <td style="padding:9px 14px">
+          <span style="background:#EEF2FF;color:#4338CA;padding:2px 8px;border-radius:4px;font-size:12px">
+            {{ e.field }}
+          </span>
+        </td>
+        <td style="padding:9px 14px;color:#6B7280;font-style:italic">{{ e.original }}</td>
+        <td style="padding:9px 14px;font-weight:500;color:#059669">{{ e.override }}</td>
+        <td style="padding:9px 14px;text-align:center">
+          <button onclick="deleteOverride('{{ e.ref }}', '{{ e.field }}', {{ loop.index }})"
+                  style="background:#FEE2E2;color:#991B1B;border:none;padding:4px 10px;
+                         border-radius:5px;cursor:pointer;font-size:12px">
+            Ripristina
+          </button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div style="text-align:center;padding:60px;color:#94A3B8">
+  <div style="font-size:48px;margin-bottom:12px">📋</div>
+  <p style="font-size:16px">Nessun override attivo</p>
+</div>
+{% endif %}
+
+<script>
+async function deleteOverride(ref, field, rowIdx) {
+  if (!confirm('Ripristinare il valore originale del batch?')) return;
+  const res  = await fetch('/api/override-delete', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({internal_reference: ref, field: field})
+  });
+  const data = await res.json();
+  if (data.ok) {
+    const row = document.getElementById('row-' + rowIdx);
+    if (row) row.remove();
+  } else {
+    alert('Errore: ' + (data.error || 'sconosciuto'));
+  }
+}
+</script>
+{% endblock %}

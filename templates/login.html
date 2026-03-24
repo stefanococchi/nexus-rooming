@@ -6,14 +6,20 @@
     <div class="login-box">
         <div class="login-logo">⬡</div>
         <h1 class="login-title">Nexus Rooming</h1>
-        <p class="login-sub">Inserisci la password per accedere</p>
+        <p class="login-sub">Accedi con le tue credenziali</p>
 
         <form method="POST">
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" name="username"
+                       placeholder="Username" autocomplete="username"
+                       autofocus required>
+            </div>
             <div class="form-group">
                 <label>Password</label>
                 <input type="password" name="password"
                        placeholder="Password" autocomplete="current-password"
-                       autofocus required>
+                       required>
             </div>
             <button type="submit" class="btn-primary">Accedi</button>
         </form>

@@ -456,11 +456,11 @@ const OUTPUT_COLS = [
 
 function renderParticipantTable(rows) {
     if (!rows.length) return '<p style="color:var(--text-muted)">Nessun risultato.</p>';
-    // Usa l'ordine definito, filtrando solo le colonne presenti nei dati
     const available = new Set(Object.keys(rows[0]));
     const cols = OUTPUT_COLS.filter(c => available.has(c));
     let html = '<table class="preview-table"><thead><tr>';
     cols.forEach(c => { html += `<th>${c}</th>`; });
+    html += '<th style="text-align:center">✏️</th>';
     html += '</tr></thead><tbody>';
     rows.forEach(r => {
         const stato  = r['Stato'] || '';
@@ -468,6 +468,16 @@ function renderParticipantTable(rows) {
         const cls = stato === 'CXL' ? 'r-red' : (chtype ? 'r-yellow' : 'r-green');
         html += `<tr class="${cls}">`;
         cols.forEach(c => { html += `<td>${r[c]||''}</td>`; });
+        const ref = r['Internal Ref'] || '';
+        if (ref) {
+            html += `<td style="text-align:center"><button onclick="openEditModal('${ref}')"
+                style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 6px;border-radius:4px"
+                onmouseenter="this.style.background='#E0E7FF'"
+                onmouseleave="this.style.background='none'"
+                title="Modifica">✏️</button></td>`;
+        } else {
+            html += '<td></td>';
+        }
         html += '</tr>';
     });
     html += '</tbody></table>';

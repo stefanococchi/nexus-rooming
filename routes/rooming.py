@@ -637,6 +637,22 @@ def upload():
     if updated:
         db.session.commit()
 
+    # ── Applica override manuali al nuovo batch ──────────────────────────────
+    from models.models import ManualOverride
+    overrides = ManualOverride.query.all()
+    if overrides:
+        batch_rows = RoomingList.query.filter_by(import_batch=batch_id).all()
+        ref_to_row = {str(r.internal_reference).strip(): r
+                      for r in batch_rows if r.internal_reference}
+        applied = 0
+        for ov in overrides:
+            row = ref_to_row.get(str(ov.internal_reference).strip())
+            if row:
+                setattr(row, ov.field, ov.override_value)
+                applied += 1
+        if applied:
+            db.session.commit()
+
     flash(f'Import completato: {inserted} partecipanti caricati, {updated} notti ereditate (batch: {batch_id[:19]}).', 'success')
     return redirect(url_for('rooming.index'))
 
@@ -3126,7 +3142,8 @@ def api_original_file(batch_id):
     for r in rows:
         row_data = {'_is_cxl': r.is_cxl,
                     '_has_changes': bool(r.change_date or
-                                         (r.latest_changes and str(r.latest_changes).strip()))}
+                                         (r.latest_changes and str(r.latest_changes).strip())),
+                    'internal_reference': r.internal_reference or ''}
         for f in cols:
             row_data[f] = cell_val(f, r)
         result.append(row_data)
@@ -3237,3 +3254,236 @@ def api_export_original(batch_id):
     return send_file(buf, as_attachment=True,
                      download_name=f'FileOriginale_{ts}.xlsx',
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+# ── Override manuali ──────────────────────────────────────────────────────────
+
+# Campi editabili con etichetta
+EDITABLE_FIELDS = [
+    ('title',                     'Title'),
+    ('last_name',                 'Last Name'),
+    ('first_name',                'First Name'),
+    ('comment',                   'Comment'),
+    ('email',                     'Email'),
+    ('phone',                     'Phone'),
+    ('billing',                   'Billing'),
+    ('upgrade',                   'Upgrade'),
+    ('company_name',              'Company'),
+    ('company_country',           'Country'),
+    ('job_position',              'Job Position'),
+    ('company_category',          'Category'),
+    ('company_subcategory',       'Sub-Category'),
+    ('registration_state',        'Reg. State'),
+    ('hotel',                     'Hotel'),
+    ('nexus_bd',                  'NEXUS BD'),
+    ('night_no_need',             'No need'),
+    ('night_sat_28mar',           'Notte 28/03'),
+    ('night_sun_29mar',           'Notte 29/03'),
+    ('night_mon_30mar',           'Notte 30/03'),
+    ('night_tue_31mar',           'Notte 31/03'),
+    ('night_wed_1apr',            'Notte 01/04'),
+    ('night_thu_2apr',            'Notte 02/04'),
+    ('night_fri_3apr',            'Notte 03/04'),
+    ('night_sat_4apr',            'Notte 04/04'),
+    ('arrival_mode',              'Arrival'),
+    ('need_smooth_checkin',       'Smooth CI'),
+    ('diet_restrictions',         'Diet'),
+    ('need_visa',                 'Visa?'),
+    ('visa_birth_date',           'Birth Date'),
+    ('visa_birth_place',          'Birth Place'),
+    ('visa_passport',             'Passport N.'),
+    ('visa_delivery_date',        'Doc Issued'),
+    ('visa_expiration_date',      'Doc Expiry'),
+    ('visa_company_address',      'Company Address'),
+    ('status_vp_bd',              'VP/BD'),
+    ('status_organisator',        'Organisator'),
+    ('status_board_nai',          'Board NAI'),
+    ('status_climate_day',        'Climate Day'),
+    ('status_spouse',             'Spouse'),
+    ('is_parent_manager',         'Parent Mgr'),
+    ('registered_colleagues',     'Colleagues'),
+    ('latest_changes',            'Latest Changes'),
+]
+
+
+@rooming_bp.route('/api/override', methods=['POST'])
+def api_override():
+    """Salva o aggiorna un override manuale."""
+    from flask import session as flask_session
+    from models.models import ManualOverride
+    data     = request.get_json()
+    ref      = (data.get('internal_reference') or '').strip()
+    field    = data.get('field', '').strip()
+    new_val  = data.get('value', '')
+    username = flask_session.get('username', 'unknown')
+
+    if not ref or not field:
+        return jsonify({'ok': False, 'error': 'Dati mancanti'})
+
+    # Leggi valore attuale dal batch più recente
+    batches = get_batches()
+    original_val = ''
+    if batches:
+        row = RoomingList.query.filter_by(
+            import_batch=batches[0][0], internal_reference=ref).first()
+        if row:
+            original_val = str(getattr(row, field) or '')
+
+    # Upsert override
+    ov = ManualOverride.query.filter_by(
+        internal_reference=ref, field=field).first()
+    if ov:
+        ov.original_value = original_val
+        ov.override_value = new_val
+        ov.modified_at    = datetime.now()
+        ov.modified_by    = username
+    else:
+        ov = ManualOverride(
+            internal_reference=ref,
+            field=field,
+            original_value=original_val,
+            override_value=new_val,
+            modified_at=datetime.now(),
+            modified_by=username,
+        )
+        db.session.add(ov)
+
+    # Applica subito al batch corrente + aggiorna latest_changes
+    if batches:
+        row = RoomingList.query.filter_by(
+            import_batch=batches[0][0], internal_reference=ref).first()
+        if row:
+            setattr(row, field, new_val)
+            # Marca il record come modificato manualmente -> diventa giallo
+            today_str = datetime.now().strftime('%d/%m/%Y')
+            row.latest_changes = f'MANUAL EDIT - {today_str} ({username})'
+            row.change_type    = 'MANUAL EDIT'
+            row.change_date    = datetime.now().date()
+
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@rooming_bp.route('/api/override-delete', methods=['POST'])
+def api_override_delete():
+    """Ripristina un campo al valore originale del batch."""
+    from models.models import ManualOverride
+    data  = request.get_json()
+    ref   = (data.get('internal_reference') or '').strip()
+    field = data.get('field', '').strip()
+
+    ov = ManualOverride.query.filter_by(
+        internal_reference=ref, field=field).first()
+    if not ov:
+        return jsonify({'ok': False, 'error': 'Override non trovato'})
+
+    # Ripristina il valore originale nel batch corrente
+    batches = get_batches()
+    if batches:
+        row = RoomingList.query.filter_by(
+            import_batch=batches[0][0], internal_reference=ref).first()
+        if row:
+            setattr(row, field, ov.original_value)
+
+    db.session.delete(ov)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@rooming_bp.route('/api/overrides/<internal_reference>')
+def api_get_overrides(internal_reference):
+    """Restituisce tutti gli override attivi per un partecipante."""
+    from models.models import ManualOverride
+    ovs = ManualOverride.query.filter_by(
+        internal_reference=internal_reference).all()
+    return jsonify({
+        'overrides': {ov.field: {
+            'value':      ov.override_value,
+            'original':   ov.original_value,
+            'modified_at': ov.modified_at.strftime('%d/%m/%Y %H:%M'),
+            'modified_by': ov.modified_by,
+        } for ov in ovs}
+    })
+
+
+@rooming_bp.route('/api/participant/<internal_reference>')
+def api_get_participant(internal_reference):
+    """Restituisce i dati attuali di un partecipante (con override applicati)."""
+    batches = get_batches()
+    if not batches:
+        return jsonify({'ok': False, 'error': 'Nessun batch'})
+    row = RoomingList.query.filter_by(
+        import_batch=batches[0][0],
+        internal_reference=internal_reference).first()
+    if not row:
+        return jsonify({'ok': False, 'error': 'Partecipante non trovato'})
+
+    from models.models import ManualOverride
+    ovs = {ov.field: ov.override_value
+           for ov in ManualOverride.query.filter_by(
+               internal_reference=internal_reference).all()}
+
+    # Campi con selezione da tendina
+    SELECT_FIELDS = {'hotel', 'billing', 'company_category', 'company_subcategory'}
+
+    # Carica opzioni distinte per i campi select
+    field_options = {}
+    for f in SELECT_FIELDS:
+        col = getattr(RoomingList, f, None)
+        if col is not None:
+            vals = db.session.execute(db.text(
+                f"SELECT DISTINCT {f} FROM rooming_list WHERE import_batch = :bid AND {f} IS NOT NULL ORDER BY {f}"
+            ), {'bid': batches[0][0]}).fetchall()
+            field_options[f] = [r[0] for r in vals if r[0]]
+
+    fields_dict = {}
+    for field, label in EDITABLE_FIELDS:
+        entry = {
+            'label':    label,
+            'value':    cell_val(field, row),
+            'override': field in ovs,
+            'type':     'select' if field in SELECT_FIELDS else 'text',
+        }
+        if field in SELECT_FIELDS:
+            entry['options'] = field_options.get(field, [])
+        fields_dict[field] = entry
+
+    return jsonify({
+        'ok':        True,
+        'name':      f'{row.first_name or ""} {row.last_name or ""}'.strip(),
+        'ref':       internal_reference,
+        'fields':    fields_dict,
+    })
+
+
+@rooming_bp.route('/overrides-log')
+def overrides_log():
+    """Pagina log di tutti gli override."""
+    from models.models import ManualOverride
+    ovs = ManualOverride.query.order_by(
+        ManualOverride.modified_at.desc()).all()
+
+    # Arricchisci con nome partecipante dall'ultimo batch
+    batches = get_batches()
+    ref_to_name = {}
+    if batches:
+        rows = RoomingList.query.filter_by(import_batch=batches[0][0]).all()
+        ref_to_name = {
+            str(r.internal_reference): f'{r.first_name or ""} {r.last_name or ""}'.strip()
+            for r in rows if r.internal_reference
+        }
+
+    field_labels = {f: l for f, l in EDITABLE_FIELDS}
+
+    log_entries = [{
+        'ref':          ov.internal_reference,
+        'name':         ref_to_name.get(str(ov.internal_reference), '—'),
+        'field':        field_labels.get(ov.field, ov.field),
+        'original':     ov.original_value or '—',
+        'override':     ov.override_value or '—',
+        'modified_at':  ov.modified_at.strftime('%d/%m/%Y %H:%M'),
+        'modified_by':  ov.modified_by,
+    } for ov in ovs]
+
+    return render_template('overrides_log.html', log_entries=log_entries,
+                           total=len(log_entries))

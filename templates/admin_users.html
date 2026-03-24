@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Gestione Utenti{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+  <h1 style="margin:0;font-size:22px;color:#1F3864">👤 Gestione Utenti</h1>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;max-width:900px">
+
+  <!-- Lista utenti -->
+  <div style="background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:20px">
+    <h2 style="font-size:15px;margin:0 0 14px;color:#1F3864">Utenti attivi</h2>
+    {% if users %}
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="border-bottom:2px solid #E2E8F0">
+          <th style="text-align:left;padding:6px 8px;color:#64748B">Username</th>
+          <th style="text-align:center;padding:6px 8px;color:#64748B">Azioni</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr style="border-bottom:1px solid #F1F5F9">
+          <td style="padding:8px">
+            <strong>{{ u.username or u.email }}</strong>
+            {% if (u.username or u.email) == session.get('username') %}
+            <span style="font-size:11px;color:#059669;margin-left:6px">(tu)</span>
+            {% endif %}
+          </td>
+          <td style="padding:8px;text-align:center;display:flex;gap:6px;justify-content:center">
+            <!-- Reset password -->
+            <button onclick="showReset({{ u.id }}, '{{ u.username or u.email }}')"
+                    style="background:#EFF6FF;color:#1D4ED8;border:none;padding:4px 10px;
+                           border-radius:5px;cursor:pointer;font-size:12px">
+              🔑 Reset pw
+            </button>
+            {% if (u.username or u.email) != session.get('username') %}
+            <form method="POST" style="margin:0" onsubmit="return confirm('Eliminare {{ u.username or u.email }}?')">
+              <input type="hidden" name="action" value="delete">
+              <input type="hidden" name="user_id" value="{{ u.id }}">
+              <button type="submit"
+                      style="background:#FEE2E2;color:#991B1B;border:none;padding:4px 10px;
+                             border-radius:5px;cursor:pointer;font-size:12px">
+                🗑 Elimina
+              </button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:#94A3B8;font-size:13px">Nessun utente.</p>
+    {% endif %}
+  </div>
+
+  <!-- Aggiungi utente -->
+  <div style="background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:20px">
+    <h2 style="font-size:15px;margin:0 0 14px;color:#1F3864">Aggiungi utente</h2>
+    <form method="POST">
+      <input type="hidden" name="action" value="add">
+      <div style="margin-bottom:12px">
+        <label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">Username</label>
+        <input type="text" name="username" required
+               style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:13px;box-sizing:border-box">
+      </div>
+      <div style="margin-bottom:16px">
+        <label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">Password</label>
+        <input type="password" name="password" required
+               style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:13px;box-sizing:border-box">
+      </div>
+      <button type="submit"
+              style="background:#1F3864;color:#fff;border:none;padding:8px 20px;
+                     border-radius:7px;cursor:pointer;font-size:13px;font-weight:500">
+        + Aggiungi
+      </button>
+    </form>
+  </div>
+
+</div>
+
+<!-- Modal reset password -->
+<div id="resetModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);
+     z-index:1000;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:12px;padding:24px;width:340px;box-shadow:0 8px 32px rgba(0,0,0,.2)">
+    <h3 style="margin:0 0 16px;font-size:16px" id="resetTitle">Reset password</h3>
+    <form method="POST">
+      <input type="hidden" name="action" value="reset_password">
+      <input type="hidden" name="user_id" id="resetUserId">
+      <div style="margin-bottom:14px">
+        <label style="font-size:13px;font-weight:500;display:block;margin-bottom:4px">Nuova password</label>
+        <input type="password" name="password" required id="resetPwd"
+               style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:13px;box-sizing:border-box">
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button type="button" onclick="closeReset()"
+                style="background:#F1F5F9;color:#374151;border:none;padding:8px 16px;border-radius:6px;cursor:pointer">
+          Annulla
+        </button>
+        <button type="submit"
+                style="background:#1F3864;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer">
+          Salva
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function showReset(userId, username) {
+  document.getElementById('resetUserId').value = userId;
+  document.getElementById('resetTitle').textContent = 'Reset password — ' + username;
+  document.getElementById('resetPwd').value = '';
+  document.getElementById('resetModal').style.display = 'flex';
+}
+function closeReset() {
+  document.getElementById('resetModal').style.display = 'none';
+}
+</script>
+{% endblock %}

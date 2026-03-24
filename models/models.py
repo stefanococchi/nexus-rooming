@@ -9,6 +9,7 @@ from models import db
 class User(UserMixin, db.Model):
     __tablename__ = 'users'
     id            = db.Column(db.Integer, primary_key=True)
+    username      = db.Column(db.String(100), unique=True, nullable=True)
     email         = db.Column(db.String(150), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=True)
     is_superuser  = db.Column(db.Boolean, default=False)
@@ -216,4 +217,24 @@ class HotelContract(db.Model):
 
     __table_args__ = (
         db.UniqueConstraint('hotel', 'date', name='uq_hotel_contract_date'),
+    )
+
+
+# ─── MANUAL OVERRIDE ─────────────────────────────────────────────────────────
+
+class ManualOverride(db.Model):
+    """Modifiche manuali ai campi di un partecipante, per internal_reference.
+    Vincono sempre sui dati importati da batch."""
+    __tablename__ = 'manual_overrides'
+
+    id                 = db.Column(db.Integer, primary_key=True)
+    internal_reference = db.Column(db.String(50), nullable=False, index=True)
+    field              = db.Column(db.String(100), nullable=False)
+    original_value     = db.Column(db.Text, nullable=True)   # valore dal batch al momento dell'override
+    override_value     = db.Column(db.Text, nullable=True)   # valore impostato manualmente
+    modified_at        = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    modified_by        = db.Column(db.String(100), nullable=False)  # username
+
+    __table_args__ = (
+        db.UniqueConstraint('internal_reference', 'field', name='uq_override_ref_field'),
     )

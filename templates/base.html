@@ -33,6 +33,17 @@
                   text-decoration:none;padding:8px 16px;border-radius:7px;font-size:14px;font-weight:500;margin-right:16px">
             📅 Attività
         </a>
+        <a href="{{ url_for('rooming.overrides_log') }}"
+           style="display:inline-flex;align-items:center;gap:6px;background:#374151;color:#fff;
+                  text-decoration:none;padding:8px 16px;border-radius:7px;font-size:14px;font-weight:500;margin-right:4px">
+            📝 Log
+        </a>
+        <a href="{{ url_for('admin_users') }}"
+           style="display:inline-flex;align-items:center;gap:6px;background:#374151;color:#fff;
+                  text-decoration:none;padding:8px 16px;border-radius:7px;font-size:14px;font-weight:500;margin-right:8px">
+            👤 Utenti
+        </a>
+        <span style="font-size:13px;color:#64748B;margin-right:10px">{{ session.get('username','') }}</span>
         <a href="{{ url_for('logout') }}" class="btn-logout">Esci</a>
     </div>
 </nav>
@@ -51,6 +62,260 @@
     <span>Nexus Rooming</span>
     <span class="version">{{ app_version }}</span>
 </footer>
+
+
+<!-- Modal Edit Partecipante (globale) -->
+<div id="editModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);
+     z-index:2000;align-items:flex-start;justify-content:center;overflow-y:auto;padding:40px 16px">
+  <div style="background:#fff;border-radius:12px;width:100%;max-width:680px;box-shadow:0 12px 40px rgba(0,0,0,.25)">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid #E2E8F0">
+      <div>
+        <h2 style="margin:0;font-size:17px;color:#1F3864" id="editModalName">Modifica partecipante</h2>
+        <div style="font-size:11px;color:#94A3B8;margin-top:2px" id="editModalRef"></div>
+      </div>
+      <button onclick="closeEditModal()"
+              style="background:#F1F5F9;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:16px">x</button>
+    </div>
+    <div id="editModalBody" style="padding:20px 24px;max-height:65vh;overflow-y:auto">
+      <p style="color:#94A3B8">Caricamento...</p>
+    </div>
+    <div style="padding:16px 24px;border-top:1px solid #E2E8F0;display:flex;justify-content:space-between;align-items:center">
+      <button onclick="closeEditModal()"
+              style="background:#F1F5F9;color:#374151;border:none;padding:8px 20px;border-radius:7px;cursor:pointer">
+        Chiudi
+      </button>
+      <button onclick="saveOverrides()"
+              style="background:#059669;color:#fff;border:none;padding:9px 24px;border-radius:7px;cursor:pointer;font-size:14px;font-weight:500">
+        💾 Salva modifiche
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+let _editRef = null;
+
+async function openEditModal(internalRef) {
+  _editRef = internalRef;
+  document.getElementById('editModal').style.display = 'flex';
+  document.getElementById('editModalBody').innerHTML = '<p style="color:#94A3B8">Caricamento...</p>';
+
+  const [partRes, ovRes] = await Promise.all([
+    fetch('/api/participant/' + encodeURIComponent(internalRef)),
+    fetch('/api/overrides/' + encodeURIComponent(internalRef)),
+  ]);
+  const part   = await partRes.json();
+  const ovData = await ovRes.json();
+
+  if (!part.ok) {
+    document.getElementById('editModalBody').innerHTML = '<p style="color:red">Errore: ' + part.error + '</p>';
+    return;
+  }
+
+  document.getElementById('editModalName').textContent = part.name || internalRef;
+  document.getElementById('editModalRef').textContent  = 'Ref: ' + internalRef;
+
+  const overrides = ovData.overrides || {};
+
+
+    // Campi notte da raggruppare come toggle
+    const NIGHT_TOGGLE_FIELDS = [
+      'night_no_need',
+      'night_sat_28mar','night_sun_29mar','night_mon_30mar','night_tue_31mar',
+      'night_wed_1apr','night_thu_2apr','night_fri_3apr','night_sat_4apr'
+    ];
+    const NIGHT_LABELS = {
+      'night_no_need':   'No need',
+      'night_sat_28mar': '28/03',
+      'night_sun_29mar': '29/03',
+      'night_mon_30mar': '30/03',
+      'night_tue_31mar': '31/03',
+      'night_wed_1apr':  '01/04',
+      'night_thu_2apr':  '02/04',
+      'night_fri_3apr':  '03/04',
+      'night_sat_4apr':  '04/04',
+    };
+
+  // Raggruppa i campi notte separandoli dagli altri
+  const nightFields   = NIGHT_TOGGLE_FIELDS.filter(f => part.fields[f] !== undefined);
+  const regularFields = Object.keys(part.fields).filter(f => !NIGHT_TOGGLE_FIELDS.includes(f));
+
+  let html = '';
+
+  // ── Sezione notti toggle ────────────────────────────────────────────────
+  if (nightFields.length) {
+    const anyNightOverride = nightFields.some(f => overrides[f] !== undefined);
+    html += '<div style="background:' + (anyNightOverride ? '#F0FDF4' : '#F8FAFC') + ';border:1px solid ' + (anyNightOverride ? '#86EFAC' : '#E2E8F0') + ';border-radius:7px;padding:12px 14px;margin-bottom:12px">';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
+    html += '<label style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase">Notti</label>';
+    if (anyNightOverride) html += '<span style="font-size:10px;background:#DCFCE7;color:#166534;padding:1px 6px;border-radius:4px">override</span>';
+    html += '</div>';
+    html += '<div style="display:flex;flex-wrap:wrap;gap:8px">';
+    nightFields.forEach(f => {
+      const info = part.fields[f];
+      const isActive = !!(info.value && info.value.trim());
+      const hasOv = overrides[f] !== undefined;
+      html += '<div style="display:flex;flex-direction:column;align-items:center;gap:4px">';
+      html += '<span style="font-size:10px;color:#64748B;font-weight:500">' + (NIGHT_LABELS[f] || f) + '</span>';
+      html += '<button type="button"'
+            + ' data-field="' + f + '"'
+            + ' data-original="' + (info.value || '') + '"'
+            + ' data-active="' + (isActive ? '1' : '0') + '"'
+            + ' onclick="toggleNight(this)"'
+            + ' style="width:44px;height:28px;border-radius:6px;border:2px solid '
+            + (isActive ? '#059669' : '#CBD5E1') + ';background:'
+            + (isActive ? '#DCFCE7' : '#F1F5F9') + ';cursor:pointer;font-size:14px;transition:all .15s">'
+            + (isActive ? '✓' : '—')
+            + '</button>';
+      if (hasOv) {
+        const ov = overrides[f];
+        html += '<span style="font-size:9px;color:#059669">override</span>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+    html += '</div>';
+  }
+
+  // ── Campo Hotel in evidenza ────────────────────────────────────────────
+  if (part.fields['hotel']) {
+    const hInfo = part.fields['hotel'];
+    const hVal  = hInfo.value || '';
+    const hOv   = overrides['hotel'] !== undefined;
+    html += '<div style="background:' + (hOv ? '#F0FDF4' : '#EFF6FF') + ';border:2px solid ' + (hOv ? '#86EFAC' : '#3B82F6') + ';border-radius:9px;padding:12px 16px;margin-bottom:12px">';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">';
+    html += '<label style="font-size:12px;font-weight:700;color:#1D4ED8;text-transform:uppercase;letter-spacing:.5px">\uD83C\uDFE8 Hotel</label>';
+    if (hOv) html += '<span style="font-size:10px;background:#DCFCE7;color:#166534;padding:1px 6px;border-radius:4px">override</span>';
+    html += '</div>';
+    html += '<div style="display:flex;gap:6px;align-items:center">';
+    html += '<select data-field="hotel" data-original="' + hVal.replace(/"/g, '&quot;') + '"';
+    html += ' style="flex:1;padding:7px 10px;border:1px solid #93C5FD;border-radius:6px;font-size:13px;font-weight:500;background:' + (hOv ? '#F0FDF4' : '#fff') + '"';
+    html += ' onchange="markChanged(this)">';
+    html += '<option value="">— nessuno —</option>';
+    if (hInfo.options) {
+      hInfo.options.forEach(opt => {
+        const sel = opt === hVal ? ' selected' : '';
+        html += '<option value="' + opt.replace(/"/g, '&quot;') + '"' + sel + '>' + opt + '</option>';
+      });
+    }
+    html += '</select>';
+    if (hOv) html += '<button onclick="restoreField(\'hotel\', this)" title="Ripristina" style="background:#FEE2E2;color:#991B1B;border:none;padding:5px 9px;border-radius:5px;cursor:pointer;font-size:12px">&#8629;</button>';
+    html += '</div>';
+    if (hOv && overrides['hotel']) {
+      html += '<div style="font-size:10px;color:#6B7280;margin-top:4px">Originale: ' + (overrides['hotel'].original || '-') + ' · ' + overrides['hotel'].modified_by + ' · ' + overrides['hotel'].modified_at + '</div>';
+    }
+    html += '</div>';
+  }
+
+  // ── Campi regolari ─────────────────────────────────────────────────────
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">';
+  for (const field of regularFields) {
+    if (field === 'hotel') continue;
+    const info = part.fields[field];
+    const hasOverride = overrides[field] !== undefined;
+    const val = info.value || '';
+    const ovInfo = hasOverride ? overrides[field] : null;
+    html += '<div style="background:' + (hasOverride ? '#F0FDF4' : '#F8FAFC') + ';border:1px solid ' + (hasOverride ? '#86EFAC' : '#E2E8F0') + ';border-radius:7px;padding:10px 12px">';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">';
+    html += '<label style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase">' + info.label + '</label>';
+    if (hasOverride) html += '<span style="font-size:10px;background:#DCFCE7;color:#166534;padding:1px 6px;border-radius:4px">override</span>';
+    html += '</div>';
+    html += '<div style="display:flex;gap:6px;align-items:center">';
+    if (info.type === 'select' && info.options) {
+      html += '<select data-field="' + field + '" data-original="' + val.replace(/"/g, '&quot;') + '"';
+      html += ' style="flex:1;padding:5px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:12px;background:' + (hasOverride ? '#F0FDF4' : '#fff') + '"';
+      html += ' onchange="markChanged(this)">';
+      html += '<option value="">— nessuno —</option>';
+      info.options.forEach(opt => {
+        const sel = opt === val ? ' selected' : '';
+        html += '<option value="' + opt.replace(/"/g, '&quot;') + '"' + sel + '>' + opt + '</option>';
+      });
+      html += '</select>';
+    } else {
+      html += '<input type="text" value="' + val.replace(/"/g, '&quot;') + '" data-field="' + field + '" data-original="' + val.replace(/"/g, '&quot;') + '"';
+      html += ' style="flex:1;padding:5px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:12px;background:' + (hasOverride ? '#F0FDF4' : '#fff') + '"';
+      html += ' onchange="markChanged(this)">';
+    }
+    if (hasOverride) html += '<button onclick="restoreField(\'' + field + '\', this)" title="Ripristina" style="background:#FEE2E2;color:#991B1B;border:none;padding:4px 7px;border-radius:5px;cursor:pointer;font-size:11px">&#8629;</button>';
+    html += '</div>';
+    if (hasOverride && ovInfo) {
+      html += '<div style="font-size:10px;color:#6B7280;margin-top:3px">Originale: ' + (ovInfo.original || '-') + ' &middot; ' + ovInfo.modified_by + ' &middot; ' + ovInfo.modified_at + '</div>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  document.getElementById('editModalBody').innerHTML = html;
+}
+
+function markChanged(input) {
+  const changed = input.value !== input.dataset.original;
+  input.style.borderColor = changed ? '#F59E0B' : '#CBD5E1';
+  input.style.background  = changed ? '#FFFBEB' : '';
+}
+
+function toggleNight(btn) {
+  const isActive = btn.dataset.active === '1';
+  const newActive = !isActive;
+  btn.dataset.active = newActive ? '1' : '0';
+  btn.style.borderColor = newActive ? '#059669' : '#CBD5E1';
+  btn.style.background  = newActive ? '#DCFCE7' : '#F1F5F9';
+  btn.textContent       = newActive ? '✓' : '—';
+  // Valore: 'Yes' se attivo, '' se no (coerente col DB)
+  btn.dataset.value = newActive ? 'Yes' : '';
+}
+
+async function restoreField(field, btn) {
+  if (!confirm('Ripristinare il valore originale del batch per questo campo?')) return;
+  const res  = await fetch('/api/override-delete', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({internal_reference: _editRef, field: field})
+  });
+  const data = await res.json();
+  if (data.ok) {
+    openEditModal(_editRef);
+  } else {
+    alert('Errore: ' + (data.error || ''));
+  }
+}
+
+async function saveOverrides() {
+  const inputs  = document.querySelectorAll('#editModalBody input[data-field], #editModalBody select[data-field]');
+  const toggles = document.querySelectorAll('#editModalBody button[data-field]');
+  const changedInputs  = [...inputs].filter(i => i.value !== i.dataset.original);
+  const changedToggles = [...toggles].filter(b => (b.dataset.value || '') !== (b.dataset.original || ''));
+  const changed = [...changedInputs, ...changedToggles];
+  if (!changed.length) { closeEditModal(); return; }
+
+  const btn = document.querySelector('button[onclick="saveOverrides()"]');
+  if (btn) { btn.textContent = '⏳ Salvataggio...'; btn.disabled = true; }
+
+  for (const el of changed) {
+    const value = el.tagName === 'BUTTON' ? (el.dataset.value || '') : el.value;
+    await fetch('/api/override', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        internal_reference: _editRef,
+        field: el.dataset.field,
+        value: value,
+      })
+    });
+  }
+  if (btn) { btn.textContent = '💾 Salva modifiche'; btn.disabled = false; }
+  closeEditModal();
+  window.location.reload();
+}
+
+function closeEditModal() {
+  document.getElementById('editModal').style.display = 'none';
+  _editRef = null;
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  document.getElementById('editModal').addEventListener('click', function(e) {
+    if (e.target === document.getElementById('editModal')) closeEditModal();
+  });
+});
+</script>
 
 </body>
 </html>

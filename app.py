@@ -49,33 +49,69 @@ def create_app():
     # ── ESTENSIONI ────────────────────────────────────────────────────────────
     db.init_app(app)
 
-    # ── AUTH SEMPLICE ─────────────────────────────────────────────────────────
-    APP_PASSWORD = os.environ.get('APP_PASSWORD', 'nexus2026')
-
+    # ── AUTH NOMINALE ────────────────────────────────────────────────────────
     @app.before_request
     def check_auth():
-        # Percorsi sempre accessibili
         if request.endpoint in ('login', 'logout', 'static'):
             return
-        if not session.get('authenticated'):
+        if not session.get('username'):
             return redirect(url_for('login', next=request.url))
 
     @app.route('/login', methods=['GET', 'POST'])
     def login():
+        from models.models import User
         if request.method == 'POST':
-            pwd = request.form.get('password', '')
-            if pwd == APP_PASSWORD:
-                session['authenticated'] = True
+            username = request.form.get('username', '').strip()
+            password = request.form.get('password', '')
+            user = User.query.filter(
+                (User.username == username) | (User.email == username)
+            ).first()
+            if user and user.check_password(password) and user.is_active:
+                session['username'] = user.username or user.email
                 session.permanent = False
                 next_url = request.args.get('next') or url_for('rooming.index')
                 return redirect(next_url)
-            flash('Password errata.', 'error')
+            flash('Credenziali errate.', 'error')
         return render_template('login.html')
 
     @app.route('/logout')
     def logout():
         session.clear()
         return redirect(url_for('login'))
+
+    @app.route('/admin/users', methods=['GET', 'POST'])
+    def admin_users():
+        from models.models import User
+        if request.method == 'POST':
+            action   = request.form.get('action')
+            username = request.form.get('username', '').strip()
+            password = request.form.get('password', '').strip()
+            user_id  = request.form.get('user_id')
+            if action == 'add':
+                if User.query.filter_by(username=username).first():
+                    flash('Username già esistente.', 'error')
+                else:
+                    u = User(username=username, email=username)
+                    u.set_password(password)
+                    db.session.add(u)
+                    db.session.commit()
+                    flash(f'Utente {username} creato.', 'success')
+            elif action == 'delete' and user_id:
+                u = User.query.get(int(user_id))
+                if u and (u.username or u.email) != session.get('username'):
+                    db.session.delete(u)
+                    db.session.commit()
+                    flash('Utente eliminato.', 'success')
+                else:
+                    flash('Non puoi eliminare te stesso.', 'error')
+            elif action == 'reset_password' and user_id:
+                u = User.query.get(int(user_id))
+                if u:
+                    u.set_password(password)
+                    db.session.commit()
+                    flash(f'Password aggiornata per {u.username or u.email}.', 'success')
+        users = User.query.order_by(User.username).all()
+        return render_template('admin_users.html', users=users)
 
     # ── BLUEPRINT ─────────────────────────────────────────────────────────────
     from routes.rooming import rooming_bp

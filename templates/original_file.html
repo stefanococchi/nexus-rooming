@@ -102,6 +102,11 @@ function buildHeader() {
     `;
     tr.appendChild(th);
   });
+  // Colonna edit
+  const thEdit = document.createElement('th');
+  thEdit.textContent = '✏️';
+  thEdit.style.cssText = 'background:#1F3864;color:#fff;padding:6px 8px;text-align:center;border:1px solid #2D4A8A;font-weight:600;font-size:11px;min-width:36px;position:sticky;right:0';
+  tr.appendChild(thEdit);
   document.getElementById('table-head').innerHTML = '';
   document.getElementById('table-head').appendChild(tr);
 }
@@ -129,6 +134,21 @@ function renderRows(rows) {
       }
       tr.appendChild(td);
     });
+    // Bottone edit
+    const tdEdit = document.createElement('td');
+    tdEdit.style.cssText = 'padding:4px;text-align:center;border:1px solid #ddd;position:sticky;right:0;background:' + bg;
+    const ref = row['internal_reference'] || '';
+    if (ref) {
+      const btn = document.createElement('button');
+      btn.textContent = '✏️';
+      btn.title = 'Modifica';
+      btn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:13px;padding:2px 4px;border-radius:4px';
+      btn.onmouseenter = () => btn.style.background = '#E0E7FF';
+      btn.onmouseleave = () => btn.style.background = 'none';
+      btn.onclick = () => openEditModal(ref);
+      tdEdit.appendChild(btn);
+    }
+    tr.appendChild(tdEdit);
     tbody.appendChild(tr);
   });
 }
@@ -146,7 +166,7 @@ async function loadPage(page) {
       page, per_page: PER_PAGE,
       filters: activeFilters,
       logic,
-      cols: ALL_COLS.map(([f,_]) => f),
+      cols: [...new Set([...ALL_COLS.map(([f,_]) => f), 'internal_reference'])],
     })
   });
   const data = await resp.json();
