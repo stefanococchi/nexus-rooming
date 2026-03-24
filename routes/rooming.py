@@ -627,6 +627,16 @@ def upload():
     return redirect(url_for('rooming.index'))
 
 
+@rooming_bp.route('/latest-batch')
+def latest_batch():
+    """Redirect all'ultimo batch importato."""
+    batches = get_batches()
+    if not batches:
+        flash('Nessun batch disponibile.', 'error')
+        return redirect(url_for('rooming.index'))
+    return redirect(url_for('rooming.batch_detail', batch_id=batches[0][0]))
+
+
 @rooming_bp.route('/batch/<path:batch_id>')
 def batch_detail(batch_id):
     rows = RoomingList.query.filter_by(import_batch=batch_id)\
