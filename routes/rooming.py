@@ -232,6 +232,8 @@ def cell_val(field, row):
         return fmt_date(get_checkin(row))
     if field == 'check_out':
         return fmt_date(get_checkout(row))
+    if field == 'spouse_name':
+        return ''
     val = getattr(row, field, None)
     if val is None:
         return ''
@@ -2963,3 +2965,262 @@ def api_occupancy(batch_id):
         'data':         result,
         'has_contracts': len(contracts) > 0,
     })
+
+
+# ── Original File ─────────────────────────────────────────────────────────────
+
+# Colonne "file originale": tutte quelle del COL_MAP + campi derivati
+ORIGINAL_COLS = [
+    # Riga 1
+    ('title',                     'Title'),
+    ('last_name',                 'Last Name'),
+    ('first_name',                'First Name'),
+    ('comment',                   'Comment'),
+    ('email',                     'Email'),
+    ('phone',                     'Phone'),
+    ('billing',                   'Billing'),
+    ('upgrade',                   'Upgrade'),
+    ('check_in',                  'Check In'),
+    ('check_out',                 'Check Out'),
+    ('company_name',              'Company'),
+    ('company_country',           'Country'),
+    ('job_position',              'Job Position'),
+    ('company_category',          'Category'),
+    ('company_subcategory',       'Sub-Category'),
+    # Riga 2
+    ('registration_state',        'Reg. State'),
+    ('hotel',                     'Hotel'),
+    ('nexus_bd',                  'NEXUS BD'),
+    ('night_no_need',             'No need'),
+    ('night_sat_28mar',           'Sat 28/03'),
+    ('night_sun_29mar',           'Sun 29/03'),
+    ('night_mon_30mar',           'Mon 30/03'),
+    ('night_tue_31mar',           'Tue 31/03'),
+    ('night_wed_1apr',            'Wed 01/04'),
+    ('night_thu_2apr',            'Thu 02/04'),
+    ('night_fri_3apr',            'Fri 03/04'),
+    ('night_sat_4apr',            'Sat 04/04'),
+    ('arrival_mode',              'Arrival'),
+    ('need_smooth_checkin',       'Smooth CI'),
+    ('diet_restrictions',         'Diet'),
+    # Riga 3
+    ('need_visa',                 'Visa?'),
+    ('visa_birth_date',           'Birth Date'),
+    ('visa_birth_place',          'Birth Place'),
+    ('visa_passport',             'Passport N.'),
+    ('visa_delivery_date',        'Doc Issued'),
+    ('visa_expiration_date',      'Doc Expiry'),
+    ('visa_company_address',      'Company Address'),
+    ('comment',                   'Comment'),
+    ('internal_reference',        'Internal Ref'),
+    ('participant_number',        'Participant N.'),
+    ('ean8_barcode',              'EAN8'),
+    ('status_vp_bd',              'VP/BD'),
+    ('status_organisator',        'Organisator'),
+    ('status_board_nai',          'Board NAI'),
+    ('status_climate_day',        'Climate Day'),
+    # Riga 4
+    ('status_spouse',             'Spouse Flag'),
+    ('spouse_name',               'Spouse Name'),
+    ('is_parent_manager',         'Parent Mgr'),
+    ('registered_colleagues',     'Colleagues'),
+    ('latest_changes',            'Latest Changes'),
+    ('change_type',               'Change Type'),
+    ('change_date',               'Change Date'),
+    ('file_timestamp',            'File Timestamp'),
+]
+
+# Campi su cui permettere il filtro query
+ORIGINAL_FILTER_FIELDS = [
+    ('last_name',           'Last Name'),
+    ('first_name',          'First Name'),
+    ('hotel',               'Hotel'),
+    ('registration_state',  'Stato'),
+    ('company_name',        'Company'),
+    ('company_category',    'Category'),
+    ('billing',             'Billing'),
+    ('arrival_mode',        'Arrival'),
+    ('change_type',         'Change Type'),
+    ('status_spouse',       'Spouse'),
+    ('need_visa',           'Visa?'),
+    ('night_sat_28mar',     '28/03'),
+    ('night_sun_29mar',     '29/03'),
+    ('night_mon_30mar',     '30/03'),
+    ('night_tue_31mar',     '31/03'),
+    ('night_wed_1apr',      '01/04'),
+    ('night_thu_2apr',      '02/04'),
+    ('night_fri_3apr',      '03/04'),
+    ('night_sat_4apr',      '04/04'),
+]
+
+
+@rooming_bp.route('/original-file')
+def original_file():
+    """Pagina con preview completa del rooming list originale (ultimo batch)."""
+    batches = get_batches()
+    if not batches:
+        flash('Nessun batch disponibile.', 'error')
+        return redirect(url_for('rooming.index'))
+    batch_id = batches[0][0]
+    batch_ts = batches[0][2]
+    total    = batches[0][1]
+    return render_template('original_file.html',
+                           batch_id=batch_id,
+                           batch_ts=batch_ts,
+                           total=total,
+                           cols=ORIGINAL_COLS,
+                           filter_fields=ORIGINAL_FILTER_FIELDS)
+
+
+@rooming_bp.route('/api/original-file/<path:batch_id>', methods=['POST'])
+def api_original_file(batch_id):
+    """JSON paginato con filtri per la pagina file originale."""
+    from sqlalchemy import or_, and_
+    data     = request.get_json()
+    page     = int(data.get('page', 1))
+    per_page = int(data.get('per_page', 100))
+    filters  = data.get('filters', [])   # [{field, op, val}, ...]
+    logic    = data.get('logic', 'AND')
+    cols     = data.get('cols', [f for f, _ in ORIGINAL_COLS])
+
+    q = RoomingList.query.filter_by(import_batch=batch_id)
+
+    conds = []
+    for f in filters:
+        field = f.get('field', '')
+        op    = f.get('op', 'contains')
+        val   = f.get('val', '')
+        col   = getattr(RoomingList, field, None)
+        if col is None:
+            continue
+        if op == 'eq':          conds.append(col == val)
+        elif op == 'neq':       conds.append(col != val)
+        elif op == 'contains':  conds.append(col.ilike(f'%{val}%'))
+        elif op == 'not_empty': conds.append(col != None)
+        elif op == 'empty':     conds.append(col == None)
+    if conds:
+        q = q.filter(and_(*conds) if logic == 'AND' else or_(*conds))
+
+    total  = q.count()
+    rows   = q.order_by(RoomingList.hotel, RoomingList.last_name,
+                        RoomingList.first_name)\
+              .offset((page - 1) * per_page)\
+              .limit(per_page)\
+              .all()
+
+    col_labels = {f: l for f, l in ORIGINAL_COLS}
+    result = []
+    for r in rows:
+        row_data = {'_is_cxl': r.is_cxl,
+                    '_has_changes': bool(r.change_date or
+                                         (r.latest_changes and str(r.latest_changes).strip()))}
+        for f in cols:
+            row_data[f] = cell_val(f, r)
+        result.append(row_data)
+
+    return jsonify({
+        'rows':   result,
+        'total':  total,
+        'page':   page,
+        'pages':  (total + per_page - 1) // per_page,
+        'labels': col_labels,
+    })
+
+
+@rooming_bp.route('/api/export-original/<path:batch_id>', methods=['POST'])
+def api_export_original(batch_id):
+    """Esporta in Excel le righe filtrate del file originale."""
+    from sqlalchemy import or_, and_
+    data    = request.get_json()
+    filters = data.get('filters', [])
+    logic   = data.get('logic', 'AND')
+
+    q = RoomingList.query.filter_by(import_batch=batch_id)
+    conds = []
+    for f in filters:
+        field = f.get('field', '')
+        op    = f.get('op', 'contains')
+        val   = f.get('val', '')
+        col   = getattr(RoomingList, field, None)
+        if col is None:
+            continue
+        if op == 'eq':          conds.append(col == val)
+        elif op == 'neq':       conds.append(col != val)
+        elif op == 'contains':  conds.append(col.ilike(f'%{val}%'))
+        elif op == 'not_empty': conds.append(col != None)
+        elif op == 'empty':     conds.append(col == None)
+    if conds:
+        q = q.filter(and_(*conds) if logic == 'AND' else or_(*conds))
+
+    rows = q.order_by(RoomingList.hotel, RoomingList.last_name,
+                      RoomingList.first_name).all()
+
+    wb  = openpyxl.Workbook()
+    ws  = wb.active
+    ws.title = 'File Originale'
+
+    hdr_font    = Font(name='Calibri', bold=True, color='FFFFFF', size=9)
+    hdr_fill    = PatternFill('solid', start_color='1F3864')
+    norm_font   = Font(name='Calibri', size=9)
+    green_fill  = PatternFill('solid', start_color='C6EFCE')
+    yellow_fill = PatternFill('solid', start_color='FFEB9C')
+    red_fill    = PatternFill('solid', start_color='FFC7CE')
+    center = Alignment(horizontal='center', vertical='center')
+    left   = Alignment(horizontal='left',   vertical='center')
+    thin   = Border(left=Side(style='thin'), right=Side(style='thin'),
+                    top=Side(style='thin'),  bottom=Side(style='thin'))
+
+    n_cols = len(ORIGINAL_COLS)
+
+    # Titolo
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
+    tc = ws.cell(row=1, column=1, value='FILE ORIGINALE — ROOMING LIST')
+    tc.font = Font(name='Calibri', bold=True, size=13, color='1F3864')
+    tc.alignment = center
+    ws.row_dimensions[1].height = 24
+
+    # Sottotitolo
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=n_cols)
+    ts_str = datetime.now().strftime('%d/%m/%Y %H:%M')
+    filter_desc = f'{len(filters)} filtri attivi' if filters else 'nessun filtro'
+    ws.cell(row=2, column=1,
+            value=f'Generato il {ts_str}  |  {len(rows)} righe  |  {filter_desc}'
+            ).font = Font(name='Calibri', size=9, italic=True)
+    ws.row_dimensions[2].height = 14
+
+    # Header
+    for col, (field, label) in enumerate(ORIGINAL_COLS, 1):
+        c = ws.cell(row=3, column=col, value=label)
+        c.font = hdr_font; c.fill = hdr_fill
+        c.alignment = center; c.border = thin
+    ws.row_dimensions[3].height = 20
+
+    for rn, r in enumerate(rows, 4):
+        is_cxl     = r.is_cxl
+        is_changed = r.change_date or (r.latest_changes and str(r.latest_changes).strip())
+        row_fill   = red_fill if is_cxl else (yellow_fill if is_changed else green_fill)
+        for col, (field, _) in enumerate(ORIGINAL_COLS, 1):
+            c = ws.cell(row=rn, column=col, value=cell_val(field, r))
+            c.font = norm_font; c.fill = row_fill
+            c.alignment = left; c.border = thin
+        ws.row_dimensions[rn].height = 14
+
+    # Larghezze
+    night_fields = {'night_sat_28mar','night_sun_29mar','night_mon_30mar','night_tue_31mar',
+                    'night_wed_1apr','night_thu_2apr','night_fri_3apr','night_sat_4apr',
+                    'night_no_need','night_other'}
+    for col, (field, _) in enumerate(ORIGINAL_COLS, 1):
+        if field in night_fields:
+            w = 7
+        else:
+            w = COL_WIDTHS.get(field, 14)
+        ws.column_dimensions[get_column_letter(col)].width = w
+
+    ws.freeze_panes = 'A4'
+
+    buf = io.BytesIO()
+    wb.save(buf); buf.seek(0)
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return send_file(buf, as_attachment=True,
+                     download_name=f'FileOriginale_{ts}.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

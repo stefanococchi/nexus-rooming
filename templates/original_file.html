@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+{% block title %}File Originale{% endblock %}
+
+{% block content %}
+<div class="page-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+  <div>
+    <h1 style="margin:0;font-size:22px;color:#1F3864">📄 File Originale</h1>
+    <div style="font-size:12px;color:#888;margin-top:3px">
+      Batch: <strong>{{ batch_id[:19].replace('_',' ') }}</strong>
+      &nbsp;·&nbsp; <strong id="visible-count">{{ total }}</strong> partecipanti
+    </div>
+  </div>
+  <div style="display:flex;gap:8px">
+    <button onclick="resetFilters()"
+            style="background:#6B7280;color:#fff;border:none;padding:8px 16px;border-radius:7px;cursor:pointer;font-size:13px">
+      🔄 Reset
+    </button>
+    <button onclick="exportExcel()"
+            style="background:#1F3864;color:#fff;border:none;padding:8px 16px;border-radius:7px;cursor:pointer;font-size:13px">
+      ⬇️ Export Excel
+    </button>
+  </div>
+</div>
+
+<!-- FILTRI -->
+<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:16px;margin-bottom:16px">
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <strong style="font-size:13px;color:#1F3864">🔍 Filtri</strong>
+
+    <select id="filter-logic" style="padding:5px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:13px">
+      <option value="AND">AND</option>
+      <option value="OR">OR</option>
+    </select>
+
+    <button onclick="addFilter()"
+            style="background:#7C3AED;color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px">
+      + Aggiungi filtro
+    </button>
+
+    <button onclick="applyFilters()"
+            style="background:#059669;color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px">
+      ✓ Applica
+    </button>
+  </div>
+
+  <div id="filter-rows" style="margin-top:10px;display:flex;flex-direction:column;gap:6px"></div>
+</div>
+
+<!-- LEGENDA -->
+<div style="display:flex;gap:12px;margin-bottom:10px;font-size:12px;align-items:center">
+  <span style="display:inline-flex;align-items:center;gap:4px">
+    <span style="width:14px;height:14px;background:#C6EFCE;display:inline-block;border-radius:3px"></span> Invariato
+  </span>
+  <span style="display:inline-flex;align-items:center;gap:4px">
+    <span style="width:14px;height:14px;background:#FFEB9C;display:inline-block;border-radius:3px"></span> Modificato
+  </span>
+  <span style="display:inline-flex;align-items:center;gap:4px">
+    <span style="width:14px;height:14px;background:#FFC7CE;display:inline-block;border-radius:3px"></span> CXL
+  </span>
+  <span style="margin-left:auto;color:#888" id="pagination-info"></span>
+</div>
+
+<!-- TABELLA -->
+<div style="overflow-x:auto;border-radius:8px;border:1px solid #E2E8F0;max-height:65vh;overflow-y:auto">
+  <table id="main-table" style="width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap">
+    <thead id="table-head" style="position:sticky;top:0;z-index:10"></thead>
+    <tbody id="table-body"></tbody>
+  </table>
+</div>
+
+<!-- PAGINAZIONE -->
+<div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-top:14px" id="pagination"></div>
+
+<script>
+const BATCH_ID  = {{ batch_id | tojson }};
+const ALL_COLS  = {{ cols | tojson }};
+const FILTER_FIELDS = {{ filter_fields | tojson }};
+
+let currentPage   = 1;
+const PER_PAGE    = 100;
+let activeFilters = [];
+let lastTotal     = {{ total }};
+
+// Indici colonne notte per celle compatte
+const NIGHT_FIELDS = new Set([
+  'night_no_need','night_sat_28mar','night_sun_29mar','night_mon_30mar',
+  'night_tue_31mar','night_wed_1apr','night_thu_2apr','night_fri_3apr',
+  'night_sat_4apr','night_other'
+]);
+
+// ── Tabella ──────────────────────────────────────────────────────────────────
+
+function buildHeader() {
+  const tr = document.createElement('tr');
+  ALL_COLS.forEach(([field, label]) => {
+    const th = document.createElement('th');
+    th.textContent = label;
+    th.style.cssText = `
+      background:#1F3864;color:#fff;padding:6px ${NIGHT_FIELDS.has(field)?'4px':'8px'};
+      text-align:center;border:1px solid #2D4A8A;font-weight:600;font-size:11px;
+      min-width:${NIGHT_FIELDS.has(field)?'36px':'80px'};max-width:${NIGHT_FIELDS.has(field)?'36px':'220px'};
+    `;
+    tr.appendChild(th);
+  });
+  document.getElementById('table-head').innerHTML = '';
+  document.getElementById('table-head').appendChild(tr);
+}
+
+function renderRows(rows) {
+  const tbody = document.getElementById('table-body');
+  tbody.innerHTML = '';
+  rows.forEach(row => {
+    const tr = document.createElement('tr');
+    const bg = row._is_cxl ? '#FFC7CE' : (row._has_changes ? '#FFEB9C' : '#C6EFCE');
+    tr.style.background = bg;
+    ALL_COLS.forEach(([field, _]) => {
+      const td = document.createElement('td');
+      const val = row[field] || '';
+      const isNight = NIGHT_FIELDS.has(field);
+      if (isNight) {
+        td.textContent = val ? '✓' : '';
+        td.style.cssText = `padding:4px;text-align:center;border:1px solid #ddd;
+          color:${val ? '#059669' : '#ccc'};font-size:11px;font-weight:bold;`;
+      } else {
+        td.textContent = val;
+        td.title = val;
+        td.style.cssText = `padding:4px 8px;border:1px solid #ddd;
+          max-width:220px;overflow:hidden;text-overflow:ellipsis;`;
+      }
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+}
+
+// ── Fetch dati ───────────────────────────────────────────────────────────────
+
+async function loadPage(page) {
+  currentPage = page;
+  const logic = document.getElementById('filter-logic').value;
+
+  const resp = await fetch(`/api/original-file/${encodeURIComponent(BATCH_ID)}`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      page, per_page: PER_PAGE,
+      filters: activeFilters,
+      logic,
+      cols: ALL_COLS.map(([f,_]) => f),
+    })
+  });
+  const data = await resp.json();
+  lastTotal = data.total;
+
+  renderRows(data.rows);
+  document.getElementById('visible-count').textContent = data.total;
+  document.getElementById('pagination-info').textContent =
+    `Pagina ${data.page} / ${data.pages}  —  ${data.total} righe totali`;
+  renderPagination(data.page, data.pages);
+}
+
+// ── Paginazione ──────────────────────────────────────────────────────────────
+
+function renderPagination(page, pages) {
+  const el = document.getElementById('pagination');
+  el.innerHTML = '';
+  if (pages <= 1) return;
+
+  const btn = (label, p, disabled) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.disabled = disabled;
+    b.style.cssText = `padding:5px 12px;border:1px solid #CBD5E1;border-radius:6px;
+      cursor:${disabled?'default':'pointer'};background:${p===page?'#1F3864':'#fff'};
+      color:${p===page?'#fff':'#1F3864'};font-size:13px`;
+    if (!disabled) b.onclick = () => loadPage(p);
+    return b;
+  };
+
+  el.appendChild(btn('◀', page-1, page === 1));
+
+  // pagine vicine
+  const range = [];
+  for (let i = Math.max(1, page-3); i <= Math.min(pages, page+3); i++) range.push(i);
+  if (range[0] > 1) { el.appendChild(btn('1', 1, false)); if (range[0]>2) el.appendChild(Object.assign(document.createElement('span'),{textContent:'…',style:'padding:0 4px'})); }
+  range.forEach(p => el.appendChild(btn(p, p, false)));
+  if (range[range.length-1] < pages) { el.appendChild(Object.assign(document.createElement('span'),{textContent:'…',style:'padding:0 4px'})); el.appendChild(btn(pages, pages, false)); }
+
+  el.appendChild(btn('▶', page+1, page === pages));
+}
+
+// ── Filtri ───────────────────────────────────────────────────────────────────
+
+function addFilter(field='', op='contains', val='') {
+  const container = document.getElementById('filter-rows');
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:8px;align-items:center';
+
+  const sel = document.createElement('select');
+  sel.style.cssText = 'padding:5px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:13px;min-width:140px';
+  FILTER_FIELDS.forEach(([f, l]) => {
+    const opt = document.createElement('option');
+    opt.value = f; opt.textContent = l;
+    if (f === field) opt.selected = true;
+    sel.appendChild(opt);
+  });
+
+  const opSel = document.createElement('select');
+  opSel.style.cssText = 'padding:5px 8px;border:1px solid #CBD5E1;border-radius:6px;font-size:13px';
+  [['contains','contiene'],['eq','='],['neq','≠'],['not_empty','non vuoto'],['empty','vuoto']].forEach(([v,l]) => {
+    const opt = document.createElement('option');
+    opt.value = v; opt.textContent = l;
+    if (v === op) opt.selected = true;
+    opSel.appendChild(opt);
+  });
+
+  const input = document.createElement('input');
+  input.type = 'text'; input.value = val; input.placeholder = 'valore…';
+  input.style.cssText = 'padding:5px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:13px;min-width:160px';
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') applyFilters(); });
+
+  opSel.addEventListener('change', () => {
+    input.style.display = ['not_empty','empty'].includes(opSel.value) ? 'none' : '';
+  });
+  if (['not_empty','empty'].includes(op)) input.style.display = 'none';
+
+  const del = document.createElement('button');
+  del.textContent = '✕';
+  del.style.cssText = 'background:#EF4444;color:#fff;border:none;padding:5px 9px;border-radius:6px;cursor:pointer;font-size:13px';
+  del.onclick = () => { row.remove(); };
+
+  row.appendChild(sel); row.appendChild(opSel); row.appendChild(input); row.appendChild(del);
+  container.appendChild(row);
+}
+
+function collectFilters() {
+  const rows = document.querySelectorAll('#filter-rows > div');
+  const filters = [];
+  rows.forEach(row => {
+    const [sel, opSel, input] = row.querySelectorAll('select, select, input');
+    const selects = row.querySelectorAll('select');
+    const inp     = row.querySelector('input');
+    filters.push({
+      field: selects[0].value,
+      op:    selects[1].value,
+      val:   inp ? inp.value.trim() : '',
+    });
+  });
+  return filters;
+}
+
+function applyFilters() {
+  activeFilters = collectFilters();
+  loadPage(1);
+}
+
+function resetFilters() {
+  document.getElementById('filter-rows').innerHTML = '';
+  activeFilters = [];
+  loadPage(1);
+}
+
+// ── Export Excel ─────────────────────────────────────────────────────────────
+
+async function exportExcel() {
+  const logic = document.getElementById('filter-logic').value;
+  const btn = document.querySelector('button[onclick="exportExcel()"]');
+  btn.textContent = '⏳ Generando…';
+  btn.disabled = true;
+
+  try {
+    const resp = await fetch(`/api/export-original/${encodeURIComponent(BATCH_ID)}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ filters: activeFilters, logic })
+    });
+    const blob = await resp.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url;
+    a.download = resp.headers.get('Content-Disposition')?.match(/filename=(.+)/)?.[1] || 'FileOriginale.xlsx';
+    a.click();
+    URL.revokeObjectURL(url);
+  } finally {
+    btn.textContent = '⬇️ Export Excel';
+    btn.disabled = false;
+  }
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+buildHeader();
+loadPage(1);
+</script>
+{% endblock %}
