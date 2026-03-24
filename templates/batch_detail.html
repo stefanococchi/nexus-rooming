@@ -459,15 +459,14 @@ function renderParticipantTable(rows) {
     const available = new Set(Object.keys(rows[0]));
     const cols = OUTPUT_COLS.filter(c => available.has(c));
     let html = '<table class="preview-table"><thead><tr>';
+    html += '<th style="text-align:center;min-width:36px">✏️</th>';
     cols.forEach(c => { html += `<th>${c}</th>`; });
-    html += '<th style="text-align:center">✏️</th>';
     html += '</tr></thead><tbody>';
     rows.forEach(r => {
         const stato  = r['Stato'] || '';
         const chtype = r['Change Type'] || '';
         const cls = stato === 'CXL' ? 'r-red' : (chtype ? 'r-yellow' : 'r-green');
         html += `<tr class="${cls}">`;
-        cols.forEach(c => { html += `<td>${r[c]||''}</td>`; });
         const ref = r['Internal Ref'] || '';
         if (ref) {
             html += `<td style="text-align:center"><button onclick="openEditModal('${ref}')"
@@ -478,6 +477,7 @@ function renderParticipantTable(rows) {
         } else {
             html += '<td></td>';
         }
+        cols.forEach(c => { html += `<td>${r[c]||''}</td>`; });
         html += '</tr>';
     });
     html += '</tbody></table>';
