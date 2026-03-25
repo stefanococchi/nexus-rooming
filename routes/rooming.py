@@ -3487,3 +3487,58 @@ def overrides_log():
 
     return render_template('overrides_log.html', log_entries=log_entries,
                            total=len(log_entries))
+
+
+# ── Aggiunta manuale partecipante ─────────────────────────────────────────────
+
+@rooming_bp.route('/api/add-participant', methods=['POST'])
+def api_add_participant():
+    """Aggiunge un partecipante manualmente al batch corrente."""
+    from flask import session as flask_session
+    data     = request.get_json()
+    username = flask_session.get('username', 'unknown')
+
+    batches = get_batches()
+    if not batches:
+        return jsonify({'ok': False, 'error': 'Nessun batch disponibile'})
+
+    batch_id = batches[0][0]
+
+    # Genera internal_reference fittizio univoco
+    existing = db.session.execute(db.text(
+        "SELECT internal_reference FROM rooming_list "
+        "WHERE internal_reference LIKE 'MANUAL-%' "
+        "ORDER BY internal_reference DESC LIMIT 1"
+    )).fetchone()
+
+    if existing:
+        try:
+            last_num = int(existing[0].replace('MANUAL-', ''))
+            new_ref  = f'MANUAL-{last_num + 1:03d}'
+        except Exception:
+            new_ref = 'MANUAL-001'
+    else:
+        new_ref = 'MANUAL-001'
+
+    today = datetime.now().date()
+    today_str = datetime.now().strftime('%d/%m/%Y')
+
+    row = RoomingList(
+        import_batch       = batch_id,
+        internal_reference = new_ref,
+        change_type        = 'MANUAL ADD',
+        change_date        = today,
+        latest_changes     = f'MANUAL ADD - {today_str} ({username})',
+        registration_state = 'OK',
+    )
+
+    # Applica i campi passati dal form
+    ALLOWED = {f for f, _ in EDITABLE_FIELDS}
+    for field, value in data.get('fields', {}).items():
+        if field in ALLOWED and hasattr(row, field):
+            setattr(row, field, value if value != '' else None)
+
+    db.session.add(row)
+    db.session.commit()
+
+    return jsonify({'ok': True, 'ref': new_ref})
