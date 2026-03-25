@@ -3542,3 +3542,33 @@ def api_add_participant():
     db.session.commit()
 
     return jsonify({'ok': True, 'ref': new_ref})
+
+
+@rooming_bp.route('/api/create-activity', methods=['POST'])
+def api_create_activity():
+    """Crea una nuova attività manualmente."""
+    from models.models import Activity
+    data = request.get_json()
+    name = (data.get('name') or '').strip()
+    date_str = (data.get('date') or '').strip()
+
+    if not name:
+        return jsonify({'ok': False, 'error': 'Nome obbligatorio'})
+
+    activity_date = None
+    if date_str:
+        try:
+            from datetime import datetime as _dt
+            activity_date = _dt.strptime(date_str, '%Y-%m-%d').date()
+        except Exception:
+            pass
+
+    # Controlla duplicati
+    existing = Activity.query.filter_by(name=name, date=activity_date).first()
+    if existing:
+        return jsonify({'ok': False, 'error': 'Attività già esistente con stesso nome e data'})
+
+    activity = Activity(name=name, date=activity_date)
+    db.session.add(activity)
+    db.session.commit()
+    return jsonify({'ok': True, 'id': activity.id})

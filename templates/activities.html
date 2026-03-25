@@ -6,6 +6,10 @@
     <a href="{{ url_for('rooming.index') }}" class="back-link">← Home</a>
     <h1>Gestione Attività</h1>
     <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+        <button onclick="openNewActivityModal()"
+                style="background:#059669;color:#fff;border:none;padding:6px 14px;border-radius:7px;cursor:pointer;font-size:13px;font-weight:500">
+            ＋ Nuova attività
+        </button>
         <a href="{{ url_for('rooming.export_all_activities') }}" class="btn-primary" style="font-size:13px;padding:6px 14px">⬇ Export tutti i partecipanti</a>
         <a href="{{ url_for('rooming.download_activity_template') }}" class="btn-sm btn-export">⬇ Template import</a>
     </div>
@@ -315,5 +319,77 @@ async function removeParticipant(apId) {
 document.addEventListener('click', e => {
     if (e.target === document.getElementById('addModal')) closeAddModal();
 });
+
+// ── Nuova attività ────────────────────────────────────────────────────────
+function openNewActivityModal() {
+    document.getElementById('newActivityName').value = '';
+    document.getElementById('newActivityDate').value = '';
+    document.getElementById('newActivityModal').style.display = 'flex';
+    setTimeout(() => document.getElementById('newActivityName').focus(), 50);
+}
+function closeNewActivityModal() {
+    document.getElementById('newActivityModal').style.display = 'none';
+}
+
+async function saveNewActivity() {
+    const name = document.getElementById('newActivityName').value.trim();
+    const date = document.getElementById('newActivityDate').value;
+    if (!name) { alert('Il nome è obbligatorio.'); return; }
+
+    const btn = document.querySelector('button[onclick="saveNewActivity()"]');
+    btn.textContent = '⏳ Salvataggio...'; btn.disabled = true;
+
+    const res  = await fetch('/api/create-activity', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name, date})
+    });
+    const data = await res.json();
+    btn.textContent = '✓ Crea'; btn.disabled = false;
+
+    if (data.ok) {
+        closeNewActivityModal();
+        window.location.reload();
+    } else {
+        alert('Errore: ' + (data.error || 'sconosciuto'));
+    }
+}
+
+document.addEventListener('click', e => {
+    if (e.target === document.getElementById('newActivityModal')) closeNewActivityModal();
+});
 </script>
+
+<!-- Modal Nuova Attività -->
+<div id="newActivityModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);
+     z-index:2000;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:12px;padding:28px 32px;max-width:420px;width:90%;
+              box-shadow:0 8px 32px rgba(0,0,0,.2)">
+    <h3 style="font-size:16px;font-weight:600;color:#1F3864;margin:0 0 18px">➕ Nuova attività</h3>
+    <div style="margin-bottom:14px">
+      <label style="font-size:12px;font-weight:600;color:#64748B;display:block;margin-bottom:4px">Nome *</label>
+      <input id="newActivityName" type="text" placeholder="Es. Gala Dinner, City Tour..."
+             onkeydown="if(event.key==='Enter') saveNewActivity()"
+             style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;
+                    font-size:13px;box-sizing:border-box">
+    </div>
+    <div style="margin-bottom:20px">
+      <label style="font-size:12px;font-weight:600;color:#64748B;display:block;margin-bottom:4px">Data</label>
+      <input id="newActivityDate" type="date"
+             style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:6px;
+                    font-size:13px;box-sizing:border-box">
+    </div>
+    <div style="display:flex;justify-content:space-between">
+      <button onclick="closeNewActivityModal()"
+              style="background:#F1F5F9;color:#374151;border:none;padding:8px 20px;border-radius:7px;cursor:pointer">
+        Annulla
+      </button>
+      <button onclick="saveNewActivity()"
+              style="background:#059669;color:#fff;border:none;padding:8px 24px;border-radius:7px;
+                     cursor:pointer;font-size:14px;font-weight:500">
+        ✓ Crea
+      </button>
+    </div>
+  </div>
+</div>
 {% endblock %}
