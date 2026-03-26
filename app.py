@@ -5,7 +5,12 @@ from models import db
 if os.environ.get('RAILWAY_ENVIRONMENT') is None:
     try:
         from dotenv import load_dotenv
-        load_dotenv()
+        # Cerca sia .env che env
+        _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'env')
+        if os.path.exists(_env_path):
+            load_dotenv(_env_path)
+        else:
+            load_dotenv()
     except ImportError:
         pass
 

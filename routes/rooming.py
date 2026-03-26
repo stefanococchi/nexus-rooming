@@ -3619,3 +3619,270 @@ def api_create_activity():
     db.session.add(activity)
     db.session.commit()
     return jsonify({'ok': True, 'id': activity.id})
+
+
+# ── AI ASSISTANT (Claude) ────────────────────────────────────────────────────
+
+AI_NIGHT_MAP = {
+    'night_sat_28mar': ['28/3', '28 marzo', '28mar', 'sabato 28'],
+    'night_sun_29mar': ['29/3', '29 marzo', '29mar', 'domenica 29'],
+    'night_mon_30mar': ['30/3', '30 marzo', '30mar', 'lunedì 30', 'lunedi 30'],
+    'night_tue_31mar': ['31/3', '31 marzo', '31mar', 'martedì 31', 'martedi 31'],
+    'night_wed_1apr':  ['1/4', '1 aprile', '1apr', 'mercoledì 1', 'mercoledi 1'],
+    'night_thu_2apr':  ['2/4', '2 aprile', '2apr', 'giovedì 2', 'giovedi 2'],
+    'night_fri_3apr':  ['3/4', '3 aprile', '3apr', 'venerdì 3', 'venerdi 3'],
+    'night_sat_4apr':  ['4/4', '4 aprile', '4apr', 'sabato 4'],
+}
+
+AI_NIGHT_LABELS = {
+    'night_sat_28mar': '28/3', 'night_sun_29mar': '29/3',
+    'night_mon_30mar': '30/3', 'night_tue_31mar': '31/3',
+    'night_wed_1apr': '1/4', 'night_thu_2apr': '2/4',
+    'night_fri_3apr': '3/4', 'night_sat_4apr': '4/4',
+}
+
+
+def _ai_build_summary(rows):
+    """Costruisce un riassunto statistico del batch."""
+    from collections import Counter
+    active = [r for r in rows if not r.is_cxl]
+    cxl = [r for r in rows if r.is_cxl]
+
+    hotel_counts = Counter(r.hotel or '(vuoto)' for r in active)
+    hotel_lines = ', '.join(f"{h}:{c}" for h, c in hotel_counts.most_common())
+
+    night_counts = {}
+    for fld, lbl in AI_NIGHT_LABELS.items():
+        night_counts[lbl] = sum(1 for r in active
+                                if (getattr(r, fld) or '').strip().upper() == 'YES')
+    night_lines = ', '.join(f"{lbl}:{c}" for lbl, c in night_counts.items())
+
+    country_counts = Counter(r.company_country or '?' for r in active)
+    country_lines = ', '.join(f"{c}:{n}" for c, n in country_counts.most_common(10))
+
+    diets = [r for r in active if r.diet_restrictions and r.diet_restrictions.strip()]
+
+    return (f"RIEPILOGO: {len(active)} attivi, {len(cxl)} CXL\n"
+            f"Hotel: {hotel_lines}\n"
+            f"Notti: {night_lines}\n"
+            f"Paesi top: {country_lines}\n"
+            f"Con dieta: {len(diets)}\n"
+            f"Lista hotel: {', '.join(h for h, _ in hotel_counts.most_common())}")
+
+
+def _ai_detect_activity(question):
+    """Rileva se la domanda riguarda un'attività. Restituisce (Activity, partecipanti_csv) o (None, None)."""
+    from models.models import Activity, ActivityParticipant
+    q_lower = question.lower()
+
+    # Keyword che indicano domanda su attività
+    activity_keywords = ['attività', 'attivita', 'activity', 'partecipa', 'iscritto',
+                         'iscritti', 'evento', 'sessione', 'workshop', 'meeting',
+                         'cena', 'pranzo', 'dinner', 'lunch', 'gala', 'tour',
+                         'escursione', 'visita']
+    if not any(kw in q_lower for kw in activity_keywords):
+        return None, None
+
+    # Cerca quale attività matcha
+    activities = Activity.query.all()
+    matched_activity = None
+    best_score = 0
+    for act in activities:
+        act_words = [w.lower() for w in (act.name or '').split() if len(w) > 2]
+        score = sum(1 for w in act_words if w in q_lower)
+        if score > best_score:
+            best_score = score
+            matched_activity = act
+
+    if not matched_activity or best_score == 0:
+        # Nessun match preciso: restituisci tutte le attività con dettagli
+        all_lines = []
+        for act in activities:
+            ap_list = ActivityParticipant.query.filter_by(activity_id=act.id).all()
+            all_lines.append(f"\n## {act.name} ({act.date or '?'}) — {len(ap_list)} partecipanti")
+            for ap in ap_list:
+                all_lines.append(f"  - {ap.last_name} {ap.first_name} ({ap.entity or ''})")
+        return 'ALL', '\n'.join(all_lines)
+
+    # Match trovato: dettaglio completo
+    ap_list = ActivityParticipant.query.filter_by(activity_id=matched_activity.id).all()
+    lines = [f"Attività: {matched_activity.name} ({matched_activity.date or '?'}) — {len(ap_list)} partecipanti"]
+    lines.append("Cognome|Nome|Ente|Dieta")
+    for ap in ap_list:
+        lines.append(f"{ap.last_name or ''}|{ap.first_name or ''}|{ap.entity or ''}|{ap.diet or ''}")
+    return matched_activity, '\n'.join(lines)
+
+
+def _ai_smart_filter(batch_id, question):
+    """Filtra i partecipanti dal DB in base alla domanda. Restituisce (rows, filtro_desc, extra_context)."""
+    from sqlalchemy import and_
+    q_lower = question.lower()
+    filters = [RoomingList.import_batch == batch_id]
+    desc_parts = []
+    extra_context = ''
+
+    # 1. Controlla se è una domanda sulle attività
+    act_match, act_data = _ai_detect_activity(question)
+    if act_match is not None:
+        extra_context = f"\n\nDATI ATTIVITÀ:\n{act_data}"
+        # Se è una domanda solo sulle attività, non filtrare il rooming in modo restrittivo
+        if act_match != 'ALL':
+            desc_parts.append(f"attività={act_match.name}")
+
+    # 2. Rileva hotel nella domanda
+    all_hotels = db.session.query(RoomingList.hotel).filter_by(import_batch=batch_id)\
+        .distinct().all()
+    hotel_names = [h[0] for h in all_hotels if h[0]]
+    matched_hotel = None
+    for h in hotel_names:
+        h_words = h.lower().split()
+        for hw in h_words:
+            if len(hw) > 3 and hw in q_lower:
+                matched_hotel = h
+                break
+        if matched_hotel:
+            break
+    if matched_hotel:
+        filters.append(RoomingList.hotel == matched_hotel)
+        desc_parts.append(f"hotel={matched_hotel}")
+
+    # 3. Rileva notte nella domanda
+    matched_night = None
+    for field, aliases in AI_NIGHT_MAP.items():
+        for alias in aliases:
+            if alias.lower() in q_lower:
+                matched_night = field
+                break
+        if matched_night:
+            break
+    if matched_night:
+        filters.append(getattr(RoomingList, matched_night).ilike('Yes'))
+        desc_parts.append(f"notte={AI_NIGHT_LABELS[matched_night]}")
+
+    # 4. Rileva CXL / cancellati (attenzione: "attività" contiene "attiv")
+    if any(kw in q_lower for kw in ['cxl', 'cancellat', 'annullat']):
+        filters.append(RoomingList.registration_state.ilike('CXL'))
+        desc_parts.append("stato=CXL")
+
+    # 5. Rileva dieta
+    if any(kw in q_lower for kw in ['dieta', 'diete', 'dietetic', 'allergic', 'vegetarian',
+                                     'vegan', 'halal', 'kosher', 'intoleran', 'celiac']):
+        filters.append(RoomingList.diet_restrictions != None)
+        filters.append(RoomingList.diet_restrictions != '')
+        desc_parts.append("con dieta")
+
+    # 6. Rileva paese
+    if any(kw in q_lower for kw in ['italia', 'italian']):
+        filters.append(RoomingList.company_country.ilike('%ital%'))
+        desc_parts.append("paese=Italy")
+
+    # 7. Rileva nomi di persone
+    import re
+    stopwords = {'quale','quali','hotel','albergo','dove','quando','quanti','quante',
+                 'chi','cosa','come','sono','nella','nello','nel','della','dello','del',
+                 'giorno','notte','data','lista','elenco','partecipanti','persone',
+                 'tutti','tutte','con','per','che','non','gli','dei','delle','suo','sua',
+                 'signor','signora','sig','può','hanno','anno','questo','questa',
+                 'dorme','dormono','sta','stanno','trova','trovano','marzo','aprile',
+                 'nomi','nome','cognome','dieta','arrivo','paese','azienda','attività',
+                 'attivita','partecipa','iscritto','iscritti','evento','sessione','fai',
+                 'workshop','meeting','cena','pranzo','dinner','lunch','gala','tour'}
+    for h in hotel_names:
+        for hw in h.lower().split():
+            if len(hw) > 2:
+                stopwords.add(hw)
+    words = [w for w in re.findall(r'[a-zàèéìòù]+', q_lower) if len(w) > 2 and w not in stopwords]
+    if words and not act_match:
+        # Solo se non è una query su attività (evita di filtrare per parole dell'attività)
+        from sqlalchemy import or_
+        name_conds = []
+        for w in words:
+            name_conds.append(RoomingList.last_name.ilike(f'%{w}%'))
+            name_conds.append(RoomingList.first_name.ilike(f'%{w}%'))
+            name_conds.append(RoomingList.company_name.ilike(f'%{w}%'))
+        filters.append(or_(*name_conds))
+        desc_parts.append(f"cerca={','.join(words)}")
+
+    # Se la domanda è solo sulle attività, non servono tutti i partecipanti rooming
+    if act_match and len(filters) == 1:
+        # Solo filtro batch_id, non mandare 780 righe
+        rows = []
+        desc = 'attività'
+        return rows, desc, extra_context
+
+    rows = RoomingList.query.filter(and_(*filters))\
+        .order_by(RoomingList.last_name, RoomingList.first_name).all()
+    desc = ' + '.join(desc_parts) if desc_parts else 'tutti'
+    return rows, desc, extra_context
+
+
+def _ai_format_rows(rows):
+    """Formatta righe in CSV compatto."""
+    lines = ['Cognome|Nome|Hotel|Stato|Azienda|Paese|CI|CO|Notti|Dieta|Arrivo|Note']
+    for r in rows:
+        nights = ','.join(lbl for fld, lbl in AI_NIGHT_LABELS.items()
+                         if (getattr(r, fld) or '').strip().upper() == 'YES')
+        parts = [
+            r.last_name or '', r.first_name or '', r.hotel or '',
+            r.registration_state or '', r.company_name or '',
+            r.company_country or '',
+            cell_val('check_in', r), cell_val('check_out', r),
+            nights, r.diet_restrictions or '', r.arrival_mode or '',
+            r.comment or '',
+        ]
+        lines.append('|'.join(v.replace('|', '/') for v in parts))
+    return '\n'.join(lines)
+
+
+@rooming_bp.route('/api/ask/<path:batch_id>', methods=['POST'])
+def api_ask(batch_id):
+    """Risponde a domande in linguaggio naturale sui dati del batch usando Claude."""
+    data = request.get_json()
+    question = (data.get('question') or '').strip()
+    history = data.get('history', [])
+
+    if not question:
+        return jsonify({'ok': False, 'error': 'Domanda vuota'})
+
+    api_key = os.environ.get('ANTHROPIC_API_KEY', '')
+    if not api_key:
+        return jsonify({'ok': False, 'error': 'ANTHROPIC_API_KEY non configurata'})
+
+    # Tutti i record per le statistiche
+    all_rows = RoomingList.query.filter_by(import_batch=batch_id).all()
+    if not all_rows:
+        return jsonify({'ok': False, 'error': 'Batch non trovato'})
+
+    summary = _ai_build_summary(all_rows)
+
+    # Filtro intelligente dal DB in base alla domanda
+    filtered, filter_desc, extra_context = _ai_smart_filter(batch_id, question)
+    filtered_csv = _ai_format_rows(filtered) if filtered else '(nessun partecipante rooming filtrato)'
+
+    system_prompt = f"""Assistente rooming evento. Rispondi in italiano, conciso. Tabelle markdown se utile.
+Dati CSV separatore |. Notti=date pernottamento. CXL=cancellato.
+I dati mostrati sono GIÀ FILTRATI dal database: questi sono TUTTI i risultati, non un campione.
+
+{summary}
+
+RISULTATI FILTRATI ({filter_desc}): {len(filtered)} partecipanti su {len(all_rows)} totali
+{filtered_csv}{extra_context}"""
+
+    messages = []
+    for msg in history[-10:]:
+        messages.append({'role': msg['role'], 'content': msg['content']})
+    messages.append({'role': 'user', 'content': question})
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        response = client.messages.create(
+            model='claude-haiku-4-5-20251001',
+            max_tokens=2048,
+            system=system_prompt,
+            messages=messages,
+        )
+        answer = response.content[0].text
+        return jsonify({'ok': True, 'answer': answer})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)})

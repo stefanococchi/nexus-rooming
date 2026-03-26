@@ -160,6 +160,7 @@ async function openEditModal(internalRef) {
       html += '<button type="button"'
             + ' data-field="' + f + '"'
             + ' data-original="' + (info.value || '') + '"'
+            + ' data-value="' + (info.value || '') + '"'
             + ' data-active="' + (isActive ? '1' : '0') + '"'
             + ' onclick="toggleNight(this)"'
             + ' style="width:44px;height:28px;border-radius:6px;border:2px solid '
