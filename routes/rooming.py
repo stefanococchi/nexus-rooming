@@ -2479,10 +2479,11 @@ def api_categories(batch_id):
 
 @rooming_bp.route('/report-transfer/<path:batch_id>', methods=['POST'])
 def report_transfer(batch_id):
-    """Excel transfer: righe=partecipanti, colonne=notti, no CXL.
+    """Excel transfer: righe=partecipanti, colonne=notti + attività, no CXL.
     Le spouse (status_spouse=Yes) ereditano le notti del titolare via internal_parent_reference.
     """
     from sqlalchemy import or_
+    from models.models import Activity, ActivityParticipant
     import re as _re
 
     hotels = request.form.getlist('hotels')
@@ -2516,6 +2517,16 @@ def report_transfer(batch_id):
     ref_map = {str(r.internal_reference).strip(): r
                for r in all_batch if r.internal_reference}
 
+    # ── Attività: mappa (COGNOME, NOME) -> set di activity_id ──
+    # Il match è per nome perché rooming_list_id cambia ad ogni import batch
+    activities = Activity.query.order_by(Activity.date, Activity.name).all()
+    name_to_activities = {}  # (last_upper, first_upper) -> set(activity_id)
+    for act in activities:
+        for ap in act.participants:
+            key = ((ap.last_name or '').strip().upper(),
+                   (ap.first_name or '').strip().upper())
+            if key[0]:
+                name_to_activities.setdefault(key, set()).add(act.id)
 
     def get_nights(r):
         """Restituisce dict {field: bool} con le notti effettive del partecipante.
@@ -2624,7 +2635,19 @@ def report_transfer(batch_id):
     thin   = Border(left=Side(style='thin'), right=Side(style='thin'),
                     top=Side(style='thin'),  bottom=Side(style='thin'))
 
-    n_cols = 3 + len(NIGHTS)
+    # Colonne attività (etichette corte: "nome (dd/mm)")
+    act_labels = []
+    for act in activities:
+        lbl = act.name or ''
+        if act.date:
+            lbl += f' ({act.date.strftime("%d/%m")})'
+        act_labels.append((act.id, lbl))
+
+    n_cols = 3 + len(NIGHTS) + len(act_labels)
+    act_col_start = 4 + len(NIGHTS)   # prima colonna attività (1-based)
+
+    act_fill = PatternFill('solid', start_color='7C3AED')
+    act_hdr_font = Font(name='Calibri', bold=True, color='FFFFFF', size=9)
 
     # Titolo
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
@@ -2648,10 +2671,16 @@ def report_transfer(batch_id):
         c = ws.cell(row=3, column=col, value=h)
         c.font = hdr_font; c.fill = hdr_fill
         c.alignment = center; c.border = thin
+    # Intestazioni attività
+    for ai, (act_id, lbl) in enumerate(act_labels):
+        c = ws.cell(row=3, column=act_col_start + ai, value=lbl)
+        c.font = act_hdr_font; c.fill = act_fill
+        c.alignment = center; c.border = thin
     ws.row_dimensions[3].height = 20
 
     # Righe partecipanti + contatori totale
-    totals = [0] * len(NIGHTS)
+    totals_nights = [0] * len(NIGHTS)
+    totals_acts   = [0] * len(act_labels)
     for rn, r in enumerate(rows, 4):
         ws.cell(row=rn, column=1, value=r.last_name or '').font = norm_font
         ws.cell(row=rn, column=1).border = thin
@@ -2676,7 +2705,19 @@ def report_transfer(batch_id):
             c = ws.cell(row=rn, column=4+ni, value=val)
             c.font = norm_font; c.border = thin; c.alignment = center
             if val:
-                totals[ni] += 1
+                totals_nights[ni] += 1
+
+        # Colonne attività (match per nome)
+        name_key = ((r.last_name or '').strip().upper(),
+                     (r.first_name or '').strip().upper())
+        part_acts = name_to_activities.get(name_key, set())
+        for ai, (act_id, _) in enumerate(act_labels):
+            val = 'X' if act_id in part_acts else ''
+            c = ws.cell(row=rn, column=act_col_start + ai, value=val)
+            c.font = norm_font; c.border = thin; c.alignment = center
+            if val:
+                totals_acts[ai] += 1
+
         ws.row_dimensions[rn].height = 15
 
     # Riga totale
@@ -2684,8 +2725,12 @@ def report_transfer(batch_id):
     ws.merge_cells(start_row=tot_row, start_column=1, end_row=tot_row, end_column=3)
     tc = ws.cell(row=tot_row, column=1, value='TOTALE')
     tc.font = tot_font; tc.fill = tot_fill; tc.alignment = left; tc.border = thin
-    for ni, t in enumerate(totals):
+    for ni, t in enumerate(totals_nights):
         c = ws.cell(row=tot_row, column=4+ni, value=t)
+        c.font = tot_font; c.fill = tot_fill
+        c.alignment = center; c.border = thin
+    for ai, t in enumerate(totals_acts):
+        c = ws.cell(row=tot_row, column=act_col_start + ai, value=t)
         c.font = tot_font; c.fill = tot_fill
         c.alignment = center; c.border = thin
     ws.row_dimensions[tot_row].height = 18
@@ -2696,6 +2741,8 @@ def report_transfer(batch_id):
     ws.column_dimensions['C'].width = 20
     for ni in range(len(NIGHTS)):
         ws.column_dimensions[get_column_letter(4+ni)].width = 8
+    for ai in range(len(act_labels)):
+        ws.column_dimensions[get_column_letter(act_col_start + ai)].width = 18
 
     ws.freeze_panes = 'A4'
 
