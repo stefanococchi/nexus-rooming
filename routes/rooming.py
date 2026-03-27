@@ -1018,7 +1018,7 @@ def report_category(batch_id):
 
 @rooming_bp.route('/api/pivot/<path:batch_id>')
 def api_pivot(batch_id):
-    """Ritorna JSON con pivot notti x hotel — esclude solo CXL."""
+    """Ritorna JSON con pivot notti x hotel — esclude CXL e shares_room."""
     rows = RoomingList.query.filter_by(import_batch=batch_id)\
                             .filter(RoomingList.registration_state != 'CXL')\
                             .all()
@@ -1042,6 +1042,8 @@ def api_pivot(batch_id):
     pivot  = {nf: {h: 0 for h in hotels} for nf, _ in NIGHTS}
 
     for r in rows:
+        if r.room_category == 'shares_room':
+            continue
         h = r.hotel or 'None'
         for nf, _ in NIGHTS:
             if getattr(r, nf):
@@ -1081,9 +1083,11 @@ def export_pivot(batch_id):
     # Hotel in ordine alfabetico
     hotels = sorted(set(r.hotel or 'None' for r in rows))
 
-    # Costruisce matrice pivot[notte][hotel] = count
+    # Costruisce matrice pivot[notte][hotel] = count (escludi shares_room)
     pivot = {nf: {h: 0 for h in hotels} for nf, _ in NIGHTS}
     for r in rows:
+        if r.room_category == 'shares_room':
+            continue
         h = r.hotel or 'None'
         for nf, _ in NIGHTS:
             if getattr(r, nf):
@@ -3015,10 +3019,10 @@ def api_occupancy(batch_id):
 
     hotels = sorted(set(r.hotel for r in rows if r.hotel))
 
-    # Costruisce confirmed[hotel][date] = count
+    # Costruisce confirmed[hotel][date] = count (escludi shares_room)
     confirmed = {h: {d: 0 for d in DATES} for h in hotels}
     for r in rows:
-        if not r.hotel:
+        if not r.hotel or r.room_category == 'shares_room':
             continue
         for field, date_str in NIGHT_TO_DATE.items():
             if getattr(r, field):
