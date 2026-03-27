@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \":*)",
+      "Bash(ls /mnt/c/Users/ACER/PycharmProjects/nexus-rooming/.venv/*/python*)",
+      "Bash(ls /mnt/c/Users/ACER/PycharmProjects/nexus-rooming/venv/*/python*)",
+      "Bash(find /mnt/c/Users/ACER/PycharmProjects/nexus-rooming -name python* -path */bin/* -o -name python* -path */Scripts/*)",
+      "Bash(.venv/Scripts/python.exe -c \"\nfrom app import app\nfrom models.models import Activity, ActivityParticipant\nwith app.app_context\\(\\):\n    acts = Activity.query.all\\(\\)\n    print\\(f'Attivita totali: {len\\(acts\\)}'\\)\n    for a in acts:\n        n_parts = len\\(a.participants\\)\n        matched = sum\\(1 for p in a.participants if p.rooming_list_id\\)\n        print\\(f'  - {a.name} \\({a.date}\\) -> {n_parts} partecipanti, {matched} con rooming_list_id'\\)\n\")",
+      "Bash(.venv/Scripts/python.exe -c \"\nfrom app import create_app\nfrom models.models import Activity, ActivityParticipant\napp = create_app\\(\\)\nwith app.app_context\\(\\):\n    acts = Activity.query.all\\(\\)\n    print\\(f'Attivita totali: {len\\(acts\\)}'\\)\n    for a in acts:\n        n_parts = len\\(a.participants\\)\n        matched = sum\\(1 for p in a.participants if p.rooming_list_id\\)\n        print\\(f'  - {a.name} \\({a.date}\\) -> {n_parts} partecipanti, {matched} con rooming_list_id'\\)\n\")",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git config:*)",
+      "Bash(git push:*)",
+      "Bash(pip install:*)",
+      "Bash(ls .venv/*/python*)",
+      "Bash(.venv/Scripts/python.exe -m pip install anthropic)",
+      "Bash(ls:*)",
+      "Bash(.venv/Scripts/python.exe -c \"\nfrom app import create_app\napp = create_app\\(\\)\nwith app.app_context\\(\\):\n    from models.models import RoomingList\n    from sqlalchemy import func\n    batches = RoomingList.query.with_entities\\(RoomingList.import_batch, func.count\\(\\)\\).group_by\\(RoomingList.import_batch\\).all\\(\\)\n    for b, c in batches:\n        print\\(f'{c} partecipanti - {b[:30]}'\\)\n\" 2>&1)",
+      "Bash(find /mnt/c/Users/ACER/PycharmProjects/nexus-rooming -type f -name Dockerfile -o -name docker-compose.yml -o -name docker-compose.yaml -o -name Procfile -o -name .env -o -name .env.* -o -name requirements.txt -o -name pyproject.toml -o -name setup.py -o -name setup.cfg)",
+      "Bash(find /mnt/c/Users/ACER/PycharmProjects/nexus-rooming -maxdepth 1 -type f -name README* -o -name CLAUDE* -o -name *.md)"
+    ]
+  }
+}

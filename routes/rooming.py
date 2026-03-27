@@ -304,8 +304,8 @@ def build_hotel_excel(hotel_name, rows, diff, batch_id, prev_batch_id):
         c.alignment = center_p; c.border = thin_p
     ws_pivot.row_dimensions[2].height = 18
 
-    # Conta confirmed per notte (no CXL)
-    active_rows = [r for r in rows if not r.is_cxl]
+    # Conta confirmed per notte (no CXL, escludi shares_room = no_need che condividono camera)
+    active_rows = [r for r in rows if not r.is_cxl and r.room_category != 'shares_room']
     confirmed   = [sum(1 for r in active_rows if getattr(r, nf)) for nf, _, _ in PIVOT_NIGHTS]
 
     # Carica contratti

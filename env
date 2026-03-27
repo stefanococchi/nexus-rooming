@@ -1,3 +1,4 @@
 SECRET_KEY=nexus-rooming-secret-cambia-in-produzione
 DATABASE_URL=postgresql://postgres:123456@localhost:5432/nexus_rooming
 APP_PASSWORD=nexus2026
+ANTHROPIC_API_KEY=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
