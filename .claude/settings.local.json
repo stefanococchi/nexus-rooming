@@ -17,7 +17,8 @@
       "Bash(ls:*)",
       "Bash(.venv/Scripts/python.exe -c \"\nfrom app import create_app\napp = create_app\\(\\)\nwith app.app_context\\(\\):\n    from models.models import RoomingList\n    from sqlalchemy import func\n    batches = RoomingList.query.with_entities\\(RoomingList.import_batch, func.count\\(\\)\\).group_by\\(RoomingList.import_batch\\).all\\(\\)\n    for b, c in batches:\n        print\\(f'{c} partecipanti - {b[:30]}'\\)\n\" 2>&1)",
       "Bash(find /mnt/c/Users/ACER/PycharmProjects/nexus-rooming -type f -name Dockerfile -o -name docker-compose.yml -o -name docker-compose.yaml -o -name Procfile -o -name .env -o -name .env.* -o -name requirements.txt -o -name pyproject.toml -o -name setup.py -o -name setup.cfg)",
-      "Bash(find /mnt/c/Users/ACER/PycharmProjects/nexus-rooming -maxdepth 1 -type f -name README* -o -name CLAUDE* -o -name *.md)"
+      "Bash(find /mnt/c/Users/ACER/PycharmProjects/nexus-rooming -maxdepth 1 -type f -name README* -o -name CLAUDE* -o -name *.md)",
+      "Bash(find /mnt/c/Users/ACER/PycharmProjects/nexus-rooming -maxdepth 2 -type f -name *.md -o -name *.txt -o -name *.toml -o -name *.yaml -o -name *.yml -o -name *.json)"
     ]
   }
 }
