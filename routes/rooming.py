@@ -460,6 +460,11 @@ def build_hotel_excel(hotel_name, rows, diff, batch_id, prev_batch_id, finale=Fa
 
 @rooming_bp.route('/')
 def index():
+    return redirect(url_for('rooming.modifiche_page'))
+
+
+@rooming_bp.route('/batches')
+def batches_page():
     batches = get_batches()
     return render_template('index.html', batches=batches)
 
@@ -1632,6 +1637,60 @@ PREVIEW_COLS = [
     ('prospective_response',      'Prospective Response'),
 ]
 
+@rooming_bp.route('/api/preview-report-global', methods=['POST'])
+def api_preview_report_global():
+    """Preview query sull'ultimo batch (usato dalla pagina Modifiche)."""
+    from sqlalchemy import or_, and_
+    batches = get_batches()
+    if not batches:
+        return jsonify({'rows': [], 'total': 0})
+
+    batch_id = batches[0][0]
+    data     = request.get_json()
+    conditions_raw = data.get('conditions', [])
+    logic    = data.get('logic', 'AND')
+
+    q = RoomingList.query.filter_by(import_batch=batch_id)
+
+    conds = []
+    for c in conditions_raw:
+        field = c.get('field', '')
+        op    = c.get('op', 'eq')
+        val   = c.get('val', '')
+        col   = getattr(RoomingList, field, None)
+        if col is None:
+            continue
+        if op == 'eq':
+            conds.append(col.ilike(val))
+        elif op == 'neq':
+            conds.append(~col.ilike(val))
+        elif op == 'contains':
+            conds.append(col.ilike(f'%{val}%'))
+        elif op == 'not_empty':
+            conds.append(col != None)
+        elif op == 'empty':
+            conds.append(col == None)
+    if conds:
+        q = q.filter(and_(*conds) if logic == 'AND' else or_(*conds))
+
+    rows = q.order_by(RoomingList.hotel, RoomingList.last_name,
+                      RoomingList.first_name).all()
+
+    def _sort(r):
+        return (r.hotel or '', 1 if r.is_cxl else 0,
+                str(r.last_name or '').upper())
+    rows = sorted(rows, key=_sort)
+
+    result = []
+    for r in rows:
+        row_data = {'_row_id': r.id}
+        for field, label in PREVIEW_COLS:
+            row_data[label] = cell_val(field, r)
+        result.append(row_data)
+
+    return jsonify({'rows': result, 'total': len(result)})
+
+
 @rooming_bp.route('/api/preview-report/<path:batch_id>', methods=['POST'])
 def api_preview_report(batch_id):
     from sqlalchemy import or_, and_
@@ -1687,7 +1746,7 @@ def api_preview_report(batch_id):
 
     result = []
     for r in rows:
-        row_data = {}
+        row_data = {'_row_id': r.id}
         for field, label in PREVIEW_COLS:
             row_data[label] = cell_val(field, r)
         result.append(row_data)
@@ -3455,6 +3514,331 @@ def api_override():
     return jsonify({'ok': True})
 
 
+@rooming_bp.route('/api/no-show', methods=['POST'])
+def api_no_show():
+    """Segna un partecipante come NO SHOW usando il DB id (univoco)."""
+    from flask import session as flask_session
+    from models.models import ManualOverride, ModificationLog
+    data     = request.get_json()
+    row_id   = data.get('row_id')
+    username = flask_session.get('username', 'unknown')
+
+    if not row_id:
+        return jsonify({'ok': False, 'error': 'ID mancante'})
+
+    row = RoomingList.query.get(row_id)
+    if not row:
+        return jsonify({'ok': False, 'error': 'Record non trovato'})
+
+    import json as _json
+    ref  = row.internal_reference or ''
+    name = f'{row.first_name or ""} {row.last_name or ""}'.strip()
+    original_hotel = (row.hotel or '').strip()
+
+    # Calcola impatto notti PRIMA di azzerare
+    NIGHT_IMPACT_FIELDS = [
+        'night_sat_28mar','night_sun_29mar','night_mon_30mar','night_tue_31mar',
+        'night_wed_1apr','night_thu_2apr','night_fri_3apr','night_sat_4apr'
+    ]
+    night_impacts = {}
+    for nf in NIGHT_IMPACT_FIELDS:
+        if getattr(row, nf, None):
+            night_impacts[nf] = -1
+
+    # Campi da azzerare
+    night_fields = [
+        'night_no_need','night_sat_28mar','night_sun_29mar','night_mon_30mar',
+        'night_tue_31mar','night_wed_1apr','night_thu_2apr','night_fri_3apr','night_sat_4apr'
+    ]
+    fields_to_clear = night_fields + ['hotel']
+
+    today_str = datetime.now().strftime('%d/%m/%Y')
+
+    for field in fields_to_clear:
+        original_val = str(getattr(row, field) or '')
+        setattr(row, field, '')
+
+        # Upsert override
+        ov = ManualOverride.query.filter_by(
+            internal_reference=ref, field=field).first()
+        if ov:
+            ov.original_value = original_val
+            ov.override_value = ''
+            ov.modified_at    = datetime.now()
+            ov.modified_by    = username
+        else:
+            ov = ManualOverride(
+                internal_reference=ref, field=field,
+                original_value=original_val, override_value='',
+                modified_at=datetime.now(), modified_by=username,
+            )
+            db.session.add(ov)
+
+    # Imposta registration_state
+    original_state = str(row.registration_state or '')
+    row.registration_state = 'NO SHOW'
+
+    ov = ManualOverride.query.filter_by(
+        internal_reference=ref, field='registration_state').first()
+    if ov:
+        ov.original_value = original_state
+        ov.override_value = 'NO SHOW'
+        ov.modified_at    = datetime.now()
+        ov.modified_by    = username
+    else:
+        ov = ManualOverride(
+            internal_reference=ref, field='registration_state',
+            original_value=original_state, override_value='NO SHOW',
+            modified_at=datetime.now(), modified_by=username,
+        )
+        db.session.add(ov)
+
+    row.latest_changes = f'NO SHOW - {today_str} ({username})'
+    row.change_type    = 'NO SHOW'
+    row.change_date    = datetime.now().date()
+
+    # Log strutturato
+    log = ModificationLog(
+        internal_reference=ref, participant_name=name,
+        category='NO_SHOW', action='DEL',
+        hotel=original_hotel or None,
+        details='No Show' + (f' (ex hotel: {original_hotel})' if original_hotel else ''),
+        night_impacts=_json.dumps(night_impacts) if night_impacts else None,
+        modified_at=datetime.now(), modified_by=username,
+    )
+    db.session.add(log)
+
+    db.session.commit()
+    return jsonify({'ok': True, 'name': name})
+
+
+@rooming_bp.route('/api/modification-log', methods=['POST'])
+def api_modification_log():
+    """Registra una modifica strutturata nel log."""
+    from flask import session as flask_session
+    from models.models import ModificationLog
+    data     = request.get_json()
+    ref      = (data.get('internal_reference') or '').strip()
+    category = (data.get('category') or '').strip()
+    details  = (data.get('details') or '').strip()
+    name     = (data.get('participant_name') or '').strip()
+    username = flask_session.get('username', 'unknown')
+
+    if not ref or not category:
+        return jsonify({'ok': False, 'error': 'Dati mancanti'})
+
+    import json as _json
+    log = ModificationLog(
+        internal_reference=ref,
+        participant_name=name,
+        category=category,
+        action=(data.get('action') or '').strip() or None,
+        hotel=(data.get('hotel') or '').strip() or None,
+        details=details,
+        night_impacts=_json.dumps(data['night_impacts']) if data.get('night_impacts') else None,
+        modified_at=datetime.now(),
+        modified_by=username,
+    )
+    db.session.add(log)
+    db.session.commit()
+    return jsonify({'ok': True})
+
+
+@rooming_bp.route('/api/modification-log-list')
+def api_modification_log_list():
+    """Restituisce le ultime modifiche strutturate."""
+    from models.models import ModificationLog
+    logs = ModificationLog.query.order_by(
+        ModificationLog.modified_at.desc()).limit(100).all()
+    return jsonify({
+        'entries': [{
+            'ref':              l.internal_reference,
+            'participant_name': l.participant_name or '',
+            'category':         l.category,
+            'details':          l.details or '',
+            'modified_at':      l.modified_at.strftime('%d/%m/%Y %H:%M'),
+            'modified_by':      l.modified_by,
+        } for l in logs]
+    })
+
+
+@rooming_bp.route('/api/modification-log-analysis')
+def api_modification_log_analysis():
+    """Analisi modifiche raggruppate per categoria, filtrate per data."""
+    from models.models import ModificationLog
+    date_from_str = request.args.get('from', '2026-03-28')
+    try:
+        date_from = datetime.strptime(date_from_str, '%Y-%m-%d')
+    except Exception:
+        date_from = datetime(2026, 3, 28)
+
+    logs = ModificationLog.query.filter(
+        ModificationLog.modified_at >= date_from
+    ).order_by(ModificationLog.modified_at.desc()).all()
+
+    counts = {}
+    by_category = {}
+    for l in logs:
+        cat = l.category
+        counts[cat] = counts.get(cat, 0) + 1
+        by_category.setdefault(cat, []).append({
+            'ref':              l.internal_reference,
+            'participant_name': l.participant_name or '',
+            'action':           l.action or '',
+            'hotel':            l.hotel or '',
+            'details':          l.details or '',
+            'modified_at':      l.modified_at.strftime('%d/%m/%Y %H:%M'),
+            'modified_by':      l.modified_by,
+        })
+
+    return jsonify({'counts': counts, 'by_category': by_category})
+
+
+@rooming_bp.route('/api/modification-log-export')
+def api_modification_log_export():
+    """Export Excel delle modifiche raggruppate per hotel con impatto notti."""
+    import json as _json
+    from models.models import ModificationLog
+    date_from_str = request.args.get('from', '2026-03-28')
+    try:
+        date_from = datetime.strptime(date_from_str, '%Y-%m-%d')
+    except Exception:
+        date_from = datetime(2026, 3, 28)
+
+    logs = ModificationLog.query.filter(
+        ModificationLog.modified_at >= date_from
+    ).order_by(ModificationLog.modified_at.desc()).all()
+
+    NIGHT_KEYS = [
+        'night_sat_28mar','night_sun_29mar','night_mon_30mar','night_tue_31mar',
+        'night_wed_1apr','night_thu_2apr','night_fri_3apr','night_sat_4apr'
+    ]
+    NIGHT_LABELS = ['28/03','29/03','30/03','31/03','01/04','02/04','03/04','04/04']
+
+    # Raggruppa per hotel
+    by_hotel = {}
+    no_hotel = []
+    for l in logs:
+        hotel = (l.hotel or '').strip()
+        if hotel:
+            by_hotel.setdefault(hotel, []).append(l)
+        else:
+            no_hotel.append(l)
+
+    wb = openpyxl.Workbook()
+    header_font = Font(name='Calibri', bold=True, size=11, color='FFFFFF')
+    header_fill = PatternFill('solid', start_color='1F3864')
+    total_font  = Font(name='Calibri', bold=True, size=11)
+    total_fill  = PatternFill('solid', start_color='D9E2F3')
+    plus_font   = Font(name='Calibri', color='166534')
+    minus_font  = Font(name='Calibri', color='991B1B')
+    center      = Alignment(horizontal='center', vertical='center')
+
+    headers = ['Data', 'Partecipante', 'Azione', 'Dettaglio'] + NIGHT_LABELS
+
+    first_sheet = True
+    for hotel in sorted(by_hotel.keys()):
+        entries = by_hotel[hotel]
+        if first_sheet:
+            ws = wb.active
+            ws.title = hotel[:31]  # Excel max 31 chars
+            first_sheet = False
+        else:
+            ws = wb.create_sheet(title=hotel[:31])
+
+        for col, h in enumerate(headers, 1):
+            c = ws.cell(row=1, column=col, value=h)
+            c.font = header_font
+            c.fill = header_fill
+            c.alignment = center
+
+        # Totali per notte
+        night_totals = [0] * len(NIGHT_KEYS)
+
+        for row_idx, l in enumerate(entries, 2):
+            ws.cell(row=row_idx, column=1, value=l.modified_at.strftime('%d/%m/%Y'))
+            ws.cell(row=row_idx, column=2, value=l.participant_name or '')
+            ws.cell(row=row_idx, column=3, value=l.action or '')
+            ws.cell(row=row_idx, column=4, value=l.details or '')
+
+            # Impatto notti
+            impacts = {}
+            if l.night_impacts:
+                try:
+                    impacts = _json.loads(l.night_impacts)
+                except Exception:
+                    pass
+
+            for i, nk in enumerate(NIGHT_KEYS):
+                val = impacts.get(nk, 0)
+                if val:
+                    cell = ws.cell(row=row_idx, column=5 + i, value=val)
+                    cell.alignment = center
+                    cell.font = plus_font if val > 0 else minus_font
+                    night_totals[i] += val
+
+        # Riga totale
+        total_row = len(entries) + 2
+        ws.cell(row=total_row, column=1)
+        ws.cell(row=total_row, column=2)
+        c = ws.cell(row=total_row, column=3, value='TOTALE')
+        c.font = total_font
+        c.fill = total_fill
+        ws.cell(row=total_row, column=4).fill = total_fill
+
+        for i, t in enumerate(night_totals):
+            c = ws.cell(row=total_row, column=5 + i, value=t if t else '')
+            c.font = total_font
+            c.fill = total_fill
+            c.alignment = center
+            if t > 0:
+                c.font = Font(name='Calibri', bold=True, color='166534')
+            elif t < 0:
+                c.font = Font(name='Calibri', bold=True, color='991B1B')
+
+        # Larghezza colonne
+        ws.column_dimensions['A'].width = 12
+        ws.column_dimensions['B'].width = 24
+        ws.column_dimensions['C'].width = 8
+        ws.column_dimensions['D'].width = 40
+        for i in range(len(NIGHT_LABELS)):
+            ws.column_dimensions[get_column_letter(5 + i)].width = 8
+
+    # Foglio per log senza hotel (se ce ne sono)
+    if no_hotel:
+        if first_sheet:
+            ws = wb.active
+            ws.title = 'Senza hotel'
+            first_sheet = False
+        else:
+            ws = wb.create_sheet(title='Senza hotel')
+
+        for col, h in enumerate(headers, 1):
+            c = ws.cell(row=1, column=col, value=h)
+            c.font = header_font
+            c.fill = header_fill
+            c.alignment = center
+
+        for row_idx, l in enumerate(no_hotel, 2):
+            ws.cell(row=row_idx, column=1, value=l.modified_at.strftime('%d/%m/%Y'))
+            ws.cell(row=row_idx, column=2, value=l.participant_name or '')
+            ws.cell(row=row_idx, column=3, value=l.action or '')
+            ws.cell(row=row_idx, column=4, value=l.details or '')
+
+    if first_sheet:
+        ws = wb.active
+        ws.title = 'Nessuna modifica'
+        ws.cell(row=1, column=1, value='Nessuna modifica nel periodo selezionato')
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    ts = datetime.now().strftime('%Y%m%d_%H%M')
+    return send_file(buf, as_attachment=True,
+                     download_name=f'analisi_modifiche_{ts}.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
 @rooming_bp.route('/api/override-delete', methods=['POST'])
 def api_override_delete():
     """Ripristina un campo al valore originale del batch."""
@@ -3545,6 +3929,51 @@ def api_get_participant(internal_reference):
         'ref':       internal_reference,
         'fields':    fields_dict,
     })
+
+
+@rooming_bp.route('/modifiche')
+def modifiche_page():
+    """Pagina centralizzata per le modifiche."""
+    return render_template('modifiche.html')
+
+
+@rooming_bp.route('/api/search-participants-global')
+def api_search_participants_global():
+    """Cerca partecipanti nell'ultimo batch per cognome/nome."""
+    q = request.args.get('q', '').strip().lower()
+    if len(q) < 2:
+        return jsonify({'results': []})
+
+    batches = get_batches()
+    if not batches:
+        return jsonify({'results': []})
+
+    rows = RoomingList.query.filter_by(import_batch=batches[0][0])\
+                            .filter(RoomingList.registration_state != 'CXL')\
+                            .all()
+
+    NIGHT_LABELS = ['28/03','29/03','30/03','31/03','01/04','02/04','03/04','04/04']
+    NIGHT_FIELDS_S = ['night_sat_28mar','night_sun_29mar','night_mon_30mar','night_tue_31mar',
+                      'night_wed_1apr','night_thu_2apr','night_fri_3apr','night_sat_4apr']
+
+    results = []
+    for r in rows:
+        fn = (r.first_name or '').lower()
+        ln = (r.last_name  or '').lower()
+        if q in fn or q in ln:
+            nights_str = ' '.join(NIGHT_LABELS[i] for i, f in enumerate(NIGHT_FIELDS_S) if getattr(r, f))
+            results.append({
+                'ref':        r.internal_reference or '',
+                'last_name':  r.last_name or '',
+                'first_name': r.first_name or '',
+                'hotel':      r.hotel or '',
+                'company':    r.company_name or '',
+                'nights':     nights_str or '—',
+                'reg_state':  r.registration_state or '',
+            })
+
+    results.sort(key=lambda x: (x['last_name'].upper(), x['first_name'].upper()))
+    return jsonify({'results': results[:30]})
 
 
 @rooming_bp.route('/overrides-log')

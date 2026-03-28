@@ -28,10 +28,20 @@
                   text-decoration:none;padding:8px 16px;border-radius:7px;font-size:14px;font-weight:500;margin-right:8px">
             📄 File Originale
         </a>
+        <a href="{{ url_for('rooming.modifiche_page') }}"
+           style="display:inline-flex;align-items:center;gap:6px;background:#DC2626;color:#fff;
+                  text-decoration:none;padding:8px 16px;border-radius:7px;font-size:14px;font-weight:500;margin-right:8px">
+            Modifiche
+        </a>
         <a href="{{ url_for('rooming.activities_page') }}"
            style="display:inline-flex;align-items:center;gap:6px;background:#7C3AED;color:#fff;
-                  text-decoration:none;padding:8px 16px;border-radius:7px;font-size:14px;font-weight:500;margin-right:16px">
+                  text-decoration:none;padding:8px 16px;border-radius:7px;font-size:14px;font-weight:500;margin-right:8px">
             📅 Attività
+        </a>
+        <a href="{{ url_for('rooming.batches_page') }}"
+           style="display:inline-flex;align-items:center;gap:6px;background:#374151;color:#fff;
+                  text-decoration:none;padding:8px 16px;border-radius:7px;font-size:14px;font-weight:500;margin-right:4px">
+            📦 Batches
         </a>
         <a href="{{ url_for('rooming.overrides_log') }}"
            style="display:inline-flex;align-items:center;gap:6px;background:#374151;color:#fff;
@@ -67,7 +77,7 @@
 <!-- Modal Edit Partecipante (globale) -->
 <div id="editModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);
      z-index:2000;align-items:flex-start;justify-content:center;overflow-y:auto;padding:40px 16px">
-  <div style="background:#fff;border-radius:12px;width:100%;max-width:680px;box-shadow:0 12px 40px rgba(0,0,0,.25)">
+  <div style="background:#fff;border-radius:12px;width:100%;max-width:960px;box-shadow:0 12px 40px rgba(0,0,0,.25)">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid #E2E8F0">
       <div>
         <h2 style="margin:0;font-size:17px;color:#1F3864" id="editModalName">Modifica partecipante</h2>
@@ -148,7 +158,10 @@ async function openEditModal(internalRef) {
     html += '<div style="background:' + (anyNightOverride ? '#F0FDF4' : '#F8FAFC') + ';border:1px solid ' + (anyNightOverride ? '#86EFAC' : '#E2E8F0') + ';border-radius:7px;padding:12px 14px;margin-bottom:12px">';
     html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
     html += '<label style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase">Notti</label>';
+    html += '<div style="display:flex;align-items:center;gap:8px">';
     if (anyNightOverride) html += '<span style="font-size:10px;background:#DCFCE7;color:#166534;padding:1px 6px;border-radius:4px">override</span>';
+    html += '<button type="button" onclick="applyNoShow()" style="background:#DC2626;color:#fff;border:none;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;letter-spacing:.3px">NO SHOW</button>';
+    html += '</div>';
     html += '</div>';
     html += '<div style="display:flex;flex-wrap:wrap;gap:8px">';
     nightFields.forEach(f => {
@@ -301,7 +314,158 @@ async function saveOverrides() {
       })
     });
   }
+  // ── Classifica e logga la modifica ──
+  const pName = document.getElementById('editModalName').textContent || '';
+  const changedFields = changed.map(el => el.dataset.field);
+  const nightFields = ['night_no_need','night_sat_28mar','night_sun_29mar','night_mon_30mar','night_tue_31mar','night_wed_1apr','night_thu_2apr','night_fri_3apr','night_sat_4apr'];
+  const hasNightChange = changedFields.some(f => nightFields.includes(f));
+  const hasHotelChange = changedFields.includes('hotel');
+
+  // Helper: leggi notti attive e hotel corrente dalla modal
+  const allNightBtns = document.querySelectorAll('#editModalBody button[data-field^="night_"]');
+  const NIGHT_FIELDS_MAP = {night_sat_28mar:'28/03',night_sun_29mar:'29/03',night_mon_30mar:'30/03',night_tue_31mar:'31/03',night_wed_1apr:'01/04',night_thu_2apr:'02/04',night_fri_3apr:'03/04',night_sat_4apr:'04/04'};
+
+  // Hotel corrente (dopo eventuali modifiche)
+  const hotelSelect = document.querySelector('#editModalBody select[data-field="hotel"]');
+  const currentHotel = hotelSelect ? hotelSelect.value : '';
+
+  if (hasHotelChange) {
+    const hotelEl = changed.find(el => el.dataset.field === 'hotel');
+    const oldH = hotelEl ? hotelEl.dataset.original : '';
+    const newH = hotelEl ? (hotelEl.tagName === 'BUTTON' ? hotelEl.dataset.value : hotelEl.value) : '';
+
+    // Costruisci impatto notti (basato sulle notti attive finali)
+    const activeNightKeys = [...allNightBtns]
+      .filter(b => b.dataset.field !== 'night_no_need' && b.dataset.active === '1')
+      .map(b => b.dataset.field);
+    const nightsLabel = activeNightKeys.map(k => NIGHT_FIELDS_MAP[k] || k).join(', ') || 'nessuna';
+
+    // Impatto negativo per hotel vecchio
+    const delImpacts = {};
+    activeNightKeys.forEach(k => { delImpacts[k] = -1; });
+
+    // Impatto positivo per hotel nuovo
+    const addImpacts = {};
+    activeNightKeys.forEach(k => { addImpacts[k] = 1; });
+
+    if (oldH) {
+      await fetch('/api/modification-log', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          internal_reference: _editRef, participant_name: pName,
+          category: 'HOTEL_CHANGE', action: 'DEL', hotel: oldH,
+          details: 'Spostato a ' + (newH || '(nessuno)'),
+          night_impacts: delImpacts
+        })
+      });
+    }
+    if (newH) {
+      await fetch('/api/modification-log', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          internal_reference: _editRef, participant_name: pName,
+          category: 'HOTEL_CHANGE', action: 'ADD', hotel: newH,
+          details: 'Da ' + (oldH || '(nessuno)'),
+          night_impacts: addImpacts
+        })
+      });
+    }
+  }
+  if (hasNightChange && !hasHotelChange) {
+    // Night change senza cambio hotel: calcola delta per ogni notte modificata
+    const nightImpacts = {};
+    changedFields.filter(f => f in NIGHT_FIELDS_MAP).forEach(f => {
+      const el = changed.find(e => e.dataset.field === f);
+      const newVal = el.tagName === 'BUTTON' ? el.dataset.value : el.value;
+      const oldVal = el.dataset.original || '';
+      if (newVal && !oldVal) nightImpacts[f] = 1;       // aggiunta notte
+      else if (!newVal && oldVal) nightImpacts[f] = -1;  // rimossa notte
+    });
+
+    const nightDetails = Object.entries(nightImpacts)
+      .map(([k, v]) => (NIGHT_FIELDS_MAP[k] || k) + ': ' + (v > 0 ? '+1' : '-1'))
+      .join(', ');
+
+    // Determina azione prevalente
+    const vals = Object.values(nightImpacts);
+    const action = vals.every(v => v > 0) ? 'ADD' : vals.every(v => v < 0) ? 'DEL' : 'MOD';
+
+    await fetch('/api/modification-log', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        internal_reference: _editRef, participant_name: pName,
+        category: 'NIGHT_CHANGE', action: action,
+        hotel: currentHotel || null,
+        details: 'Notti: ' + nightDetails,
+        night_impacts: nightImpacts
+      })
+    });
+  }
+
   if (btn) { btn.textContent = '💾 Salva modifiche'; btn.disabled = false; }
+  closeEditModal();
+  window.location.reload();
+}
+
+async function applyNoShow() {
+  if (!confirm('Segnare questo partecipante come NO SHOW? Tutte le notti verranno rimosse.')) return;
+
+  const pName = document.getElementById('editModalName').textContent || '';
+  const NIGHT_MAP = {night_sat_28mar:'28/03',night_sun_29mar:'29/03',night_mon_30mar:'30/03',night_tue_31mar:'31/03',night_wed_1apr:'01/04',night_thu_2apr:'02/04',night_fri_3apr:'03/04',night_sat_4apr:'04/04'};
+
+  // Leggi hotel e notti PRIMA di azzerare
+  const hotelSelect = document.querySelector('#editModalBody select[data-field="hotel"]');
+  const origHotel = hotelSelect ? hotelSelect.dataset.original : '';
+  const nightBtns = document.querySelectorAll('#editModalBody button[data-field^="night_"]');
+  const nightImpacts = {};
+  [...nightBtns].forEach(b => {
+    if (b.dataset.field !== 'night_no_need' && b.dataset.active === '1') {
+      nightImpacts[b.dataset.field] = -1;
+    }
+  });
+
+  // Disattiva tutti i toggle notti nella UI
+  nightBtns.forEach(btn => {
+    btn.dataset.active = '0';
+    btn.dataset.value = '';
+    btn.style.borderColor = '#CBD5E1';
+    btn.style.background = '#F1F5F9';
+    btn.textContent = '—';
+  });
+
+  // Salva tutte le notti come vuote + hotel + registration_state
+  const nightFields = [
+    'night_no_need','night_sat_28mar','night_sun_29mar','night_mon_30mar','night_tue_31mar',
+    'night_wed_1apr','night_thu_2apr','night_fri_3apr','night_sat_4apr'
+  ];
+
+  for (const f of nightFields) {
+    await fetch('/api/override', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ internal_reference: _editRef, field: f, value: '' })
+    });
+  }
+  await fetch('/api/override', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ internal_reference: _editRef, field: 'hotel', value: '' })
+  });
+  await fetch('/api/override', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ internal_reference: _editRef, field: 'registration_state', value: 'NO SHOW' })
+  });
+
+  // Log strutturato con hotel, action, night_impacts
+  await fetch('/api/modification-log', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      internal_reference: _editRef, participant_name: pName,
+      category: 'NO_SHOW', action: 'DEL',
+      hotel: origHotel || null,
+      details: 'No Show' + (origHotel ? ' (ex hotel: ' + origHotel + ')' : ''),
+      night_impacts: nightImpacts
+    })
+  });
+
   closeEditModal();
   window.location.reload();
 }

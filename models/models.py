@@ -238,3 +238,24 @@ class ManualOverride(db.Model):
     __table_args__ = (
         db.UniqueConstraint('internal_reference', 'field', name='uq_override_ref_field'),
     )
+
+
+# ─── MODIFICATION LOG ───────────────────────────────────────────────────────
+
+class ModificationLog(db.Model):
+    """Log strutturato delle modifiche, categorizzate per tipo."""
+    __tablename__ = 'modification_log'
+
+    id                 = db.Column(db.Integer, primary_key=True)
+    internal_reference = db.Column(db.String(50), nullable=False, index=True)
+    participant_name   = db.Column(db.String(300), nullable=True)
+    category           = db.Column(db.String(30), nullable=False, index=True)
+    # Categorie: NIGHT_CHANGE, HOTEL_CHANGE, NO_SHOW, ADD_PERSON
+    action             = db.Column(db.String(10), nullable=True)
+    # Azioni: DEL, ADD, NEW, MOD
+    hotel              = db.Column(db.String(200), nullable=True, index=True)
+    details            = db.Column(db.Text, nullable=True)
+    night_impacts      = db.Column(db.Text, nullable=True)
+    # JSON: {"night_sat_28mar": -1, "night_mon_30mar": 1, ...}
+    modified_at        = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    modified_by        = db.Column(db.String(100), nullable=False)

@@ -125,6 +125,21 @@ def create_app():
     with app.app_context():
         db.create_all()
 
+        # Migrazione: aggiungi colonne mancanti a modification_log
+        try:
+            db.session.execute(db.text(
+                "ALTER TABLE modification_log ADD COLUMN IF NOT EXISTS action VARCHAR(10)"
+            ))
+            db.session.execute(db.text(
+                "ALTER TABLE modification_log ADD COLUMN IF NOT EXISTS hotel VARCHAR(200)"
+            ))
+            db.session.execute(db.text(
+                "ALTER TABLE modification_log ADD COLUMN IF NOT EXISTS night_impacts TEXT"
+            ))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
     return app
 
 

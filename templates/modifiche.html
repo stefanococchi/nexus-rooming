@@ -1,0 +1,675 @@
+{% extends "base.html" %}
+{% block title %}Modifiche — Nexus Rooming{% endblock %}
+
+{% block content %}
+<style>
+.mod-query-row { display:flex; gap:8px; align-items:center; margin-bottom:6px; }
+.mod-query-row select, .mod-query-row input { padding:6px 10px; border:1px solid #CBD5E1; border-radius:6px; font-size:13px; }
+.mod-query-row select.q-field { flex:2; }
+.mod-query-row select.q-op { flex:1; }
+.mod-query-row input.q-val { flex:2; }
+.mod-preview-table { width:100%; border-collapse:collapse; font-size:12px; }
+.mod-preview-table th { background:#F8FAFC; padding:7px 8px; text-align:left; color:#64748B; font-size:11px; font-weight:600; border-bottom:2px solid #E2E8F0; white-space:nowrap; }
+.mod-preview-table td { padding:6px 8px; border-bottom:1px solid #F1F5F9; }
+.mod-preview-table tr:hover td { background:#F8FAFC; }
+.mod-preview-table tr.r-green td { background:#E2EFDA; }
+.mod-preview-table tr.r-yellow td { background:#FFF2CC; }
+.mod-preview-table tr.r-red td { background:#FFC7CE; }
+</style>
+
+<div style="max-width:1100px;margin:0 auto">
+
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+    <h1 style="font-size:22px;color:#1F3864;margin:0">Modifiche</h1>
+    <div style="display:flex;align-items:center;gap:10px">
+      <label style="font-size:12px;font-weight:600;color:#64748B">Analisi dal:</label>
+      <input type="date" id="analysisDate" value="2026-03-28"
+             style="padding:6px 10px;border:1px solid #CBD5E1;border-radius:6px;font-size:13px"
+             onchange="loadAnalysis()">
+      <button onclick="toggleAnalysis()"
+              style="background:#1F3864;color:#fff;border:none;padding:7px 16px;border-radius:7px;cursor:pointer;font-size:13px;font-weight:500">
+        Analisi
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Pannello Analisi ─────────────────────────────────────────────── -->
+  <div id="analysisPanel" style="display:none;background:#fff;border:2px solid #1F3864;border-radius:10px;padding:20px 24px;margin-bottom:20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <h2 style="font-size:16px;color:#1F3864;margin:0">Riepilogo modifiche</h2>
+      <div style="display:flex;gap:8px">
+        <button onclick="exportAnalysis()" style="background:#059669;color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:500">Export Excel</button>
+        <button onclick="toggleAnalysis()" style="background:#F1F5F9;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:13px">x</button>
+      </div>
+    </div>
+
+    <!-- Contatori -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
+      <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:14px;text-align:center">
+        <div id="countNoShow" style="font-size:28px;font-weight:700;color:#991B1B">0</div>
+        <div style="font-size:11px;color:#991B1B;font-weight:600;margin-top:2px">No Show</div>
+      </div>
+      <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:8px;padding:14px;text-align:center">
+        <div id="countNight" style="font-size:28px;font-weight:700;color:#1D4ED8">0</div>
+        <div style="font-size:11px;color:#1D4ED8;font-weight:600;margin-top:2px">Night Change</div>
+      </div>
+      <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;padding:14px;text-align:center">
+        <div id="countHotel" style="font-size:28px;font-weight:700;color:#166534">0</div>
+        <div style="font-size:11px;color:#166534;font-weight:600;margin-top:2px">Hotel Change</div>
+      </div>
+      <div style="background:#F5F3FF;border:1px solid #DDD6FE;border-radius:8px;padding:14px;text-align:center">
+        <div id="countAdd" style="font-size:28px;font-weight:700;color:#6D28D9">0</div>
+        <div style="font-size:11px;color:#6D28D9;font-weight:600;margin-top:2px">Aggiunta Persone</div>
+      </div>
+    </div>
+
+    <!-- Dettaglio per cluster -->
+    <div id="analysisDetail"></div>
+  </div>
+
+  <!-- ── Query Builder (stile Query Libera) ───────────────────────────── -->
+  <div style="background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:20px 24px;margin-bottom:20px">
+    <h2 style="font-size:15px;color:#1F3864;margin:0 0 14px">Cerca partecipante</h2>
+    <div id="modQueryRows"></div>
+    <div style="margin:10px 0">
+      <button onclick="addModQueryRow()" style="background:#EFF6FF;color:#3B82F6;border:1px solid #BFDBFE;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:500">+ Aggiungi condizione</button>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:12px">
+      <label style="font-size:13px"><input type="radio" name="modQueryLogic" value="AND" checked> AND</label>
+      <label style="font-size:13px"><input type="radio" name="modQueryLogic" value="OR"> OR</label>
+      <button onclick="runModQuery()" style="margin-left:auto;background:#1F3864;color:#fff;border:none;padding:8px 20px;border-radius:7px;cursor:pointer;font-size:13px;font-weight:500">Cerca</button>
+    </div>
+  </div>
+
+  <!-- ── Risultati ricerca ────────────────────────────────────────────── -->
+  <div id="modResultsArea" style="display:none;background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:20px 24px;margin-bottom:20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <div>
+        <h2 style="font-size:15px;color:#1F3864;margin:0">Risultati</h2>
+        <span id="modResultCount" style="font-size:12px;color:#94A3B8"></span>
+      </div>
+      <button onclick="document.getElementById('modResultsArea').style.display='none'" style="background:#F1F5F9;border:none;padding:5px 12px;border-radius:5px;cursor:pointer;font-size:13px">Chiudi</button>
+    </div>
+    <div id="modResultsContent" style="overflow-x:auto"></div>
+  </div>
+
+  <!-- ── 4 Azioni principali ──────────────────────────────────────────── -->
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:32px">
+
+    <div onclick="openAddPerson()" style="background:#fff;border:2px solid #8B5CF6;border-radius:10px;padding:20px;
+         text-align:center;cursor:pointer;transition:all .2s"
+         onmouseover="this.style.background='#F5F3FF';this.style.transform='translateY(-2px)'"
+         onmouseout="this.style.background='#fff';this.style.transform=''">
+      <div style="font-size:28px;margin-bottom:8px">+</div>
+      <div style="font-size:14px;font-weight:600;color:#8B5CF6">Aggiunta Persone</div>
+      <div style="font-size:11px;color:#94A3B8;margin-top:4px">Nuovo partecipante</div>
+    </div>
+
+    <div style="background:#fff;border:2px solid #E2E8F0;border-radius:10px;padding:20px;
+         text-align:center;opacity:.6">
+      <div style="font-size:28px;margin-bottom:8px">*</div>
+      <div style="font-size:14px;font-weight:600;color:#374151">Night Change</div>
+      <div style="font-size:11px;color:#059669;margin-top:4px;font-weight:500">Usa la matita nei risultati</div>
+    </div>
+
+    <div style="background:#fff;border:2px solid #E2E8F0;border-radius:10px;padding:20px;
+         text-align:center;opacity:.6">
+      <div style="font-size:28px;margin-bottom:8px">~</div>
+      <div style="font-size:14px;font-weight:600;color:#374151">Hotel Change</div>
+      <div style="font-size:11px;color:#059669;margin-top:4px;font-weight:500">Usa la matita nei risultati</div>
+    </div>
+
+    <div style="background:#fff;border:2px solid #E2E8F0;border-radius:10px;padding:20px;
+         text-align:center;opacity:.6">
+      <div style="font-size:28px;margin-bottom:8px">!</div>
+      <div style="font-size:14px;font-weight:600;color:#374151">No Show</div>
+      <div style="font-size:11px;color:#94A3B8;margin-top:4px">Usa il bottone nei risultati</div>
+    </div>
+
+  </div>
+
+  <!-- ── Log modifiche recenti ────────────────────────────────────────── -->
+  <div style="background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:20px 24px">
+    <h2 style="font-size:15px;color:#1F3864;margin:0 0 14px">Modifiche recenti</h2>
+    <div id="modLogBody" style="font-size:13px;color:#94A3B8">Caricamento...</div>
+  </div>
+
+</div>
+
+<script>
+// ── Query builder fields & operators (stessi di batch_detail) ──
+const MOD_QUERY_FIELDS = [
+    {f:'last_name',          l:'Cognome'},
+    {f:'first_name',         l:'Nome'},
+    {f:'hotel',              l:'Hotel'},
+    {f:'company_name',       l:'Azienda'},
+    {f:'company_country',    l:'Paese'},
+    {f:'registration_state', l:'Stato'},
+    {f:'billing',            l:'Billing'},
+    {f:'email',              l:'Email'},
+    {f:'phone',              l:'Telefono'},
+    {f:'title',              l:'Title'},
+    {f:'comment',            l:'Comment'},
+    {f:'upgrade',            l:'Upgrade'},
+    {f:'arrival_mode',       l:'Arrival Mode'},
+    {f:'company_category',   l:'Categoria'},
+    {f:'company_subcategory',l:'Sub-Categoria'},
+    {f:'job_position',       l:'Job Position'},
+    {f:'nexus_bd',           l:'NEXUS BD'},
+    {f:'change_type',        l:'Change Type'},
+    {f:'internal_reference', l:'Internal Ref'},
+    {f:'status_vp_bd',       l:'VP/BD'},
+    {f:'status_organisator', l:'Organisator'},
+    {f:'status_board_nai',   l:'Board NAI'},
+    {f:'status_climate_day', l:'Climate Day'},
+    {f:'status_spouse',      l:'Spouse'},
+    {f:'night_sat_28mar',    l:'Notte 28/03'},
+    {f:'night_sun_29mar',    l:'Notte 29/03'},
+    {f:'night_mon_30mar',    l:'Notte 30/03'},
+    {f:'night_tue_31mar',    l:'Notte 31/03'},
+    {f:'night_wed_1apr',     l:'Notte 01/04'},
+    {f:'night_thu_2apr',     l:'Notte 02/04'},
+    {f:'night_fri_3apr',     l:'Notte 03/04'},
+    {f:'night_sat_4apr',     l:'Notte 04/04'},
+];
+const MOD_OPERATORS = [
+    {v:'eq',       l:'='},
+    {v:'neq',      l:'≠'},
+    {v:'contains', l:'contiene'},
+    {v:'not_empty',l:'non vuoto'},
+    {v:'empty',    l:'vuoto'},
+];
+
+const MOD_OUTPUT_COLS = [
+    'Stato','Hotel','Last Name','First Name','Azienda','Paese',
+    'Billing','Change Type','Internal Ref',
+    'Notte 28/03','Notte 29/03','Notte 30/03','Notte 31/03',
+    'Notte 01/04','Notte 02/04','Notte 03/04','Notte 04/04',
+];
+
+function addModQueryRow() {
+  const container = document.getElementById('modQueryRows');
+  const fieldOpts = MOD_QUERY_FIELDS.map(f => '<option value="' + f.f + '">' + f.l + '</option>').join('');
+  const opOpts = MOD_OPERATORS.map(o => '<option value="' + o.v + '"' + (o.v === 'contains' ? ' selected' : '') + '>' + o.l + '</option>').join('');
+  const div = document.createElement('div');
+  div.className = 'mod-query-row';
+  div.innerHTML =
+    '<select class="q-field" onchange="modUpdateOp(this)">' + fieldOpts + '</select>' +
+    '<select class="q-op" onchange="modUpdateOp(this)">' + opOpts + '</select>' +
+    '<input class="q-val" type="text" placeholder="valore..." oninput="debouncedModQuery()">' +
+    '<button onclick="this.parentElement.remove()" style="background:#FEE2E2;color:#991B1B;border:none;padding:4px 8px;border-radius:5px;cursor:pointer;font-size:12px">x</button>';
+  container.appendChild(div);
+}
+
+function modUpdateOp(sel) {
+  const row = sel.closest('.mod-query-row');
+  const op = row.querySelector('.q-op').value;
+  const val = row.querySelector('.q-val');
+  val.style.display = ['not_empty','empty'].includes(op) ? 'none' : '';
+}
+
+let _modQueryTimer = null;
+function debouncedModQuery() {
+  clearTimeout(_modQueryTimer);
+  _modQueryTimer = setTimeout(() => {
+    const rows = document.querySelectorAll('.mod-query-row');
+    const hasValue = [...rows].some(row => {
+      const op = row.querySelector('.q-op').value;
+      const val = row.querySelector('.q-val').value.trim();
+      return ['not_empty','empty'].includes(op) || val.length >= 2;
+    });
+    if (hasValue) runModQuery();
+  }, 400);
+}
+
+async function runModQuery() {
+  const rows = document.querySelectorAll('.mod-query-row');
+  const logic = document.querySelector('input[name="modQueryLogic"]:checked').value;
+  const conditions = [];
+  rows.forEach(row => {
+    const field = row.querySelector('.q-field').value;
+    const op = row.querySelector('.q-op').value;
+    const val = row.querySelector('.q-val').value.trim();
+    conditions.push({field, op, val});
+  });
+  if (!conditions.length) return;
+
+  document.getElementById('modResultsArea').style.display = '';
+  document.getElementById('modResultsContent').innerHTML = '<p style="color:#94A3B8">Caricamento...</p>';
+
+  const res = await fetch('/api/preview-report-global', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({type: 'query', conditions, logic})
+  });
+  const data = await res.json();
+
+  document.getElementById('modResultCount').textContent = data.total + ' partecipanti';
+  document.getElementById('modResultsContent').innerHTML = renderModTable(data.rows);
+}
+
+function renderModTable(rows) {
+  if (!rows.length) return '<p style="color:#94A3B8">Nessun risultato.</p>';
+  const available = new Set(Object.keys(rows[0]));
+  const cols = MOD_OUTPUT_COLS.filter(c => available.has(c));
+
+  let html = '<table class="mod-preview-table"><thead><tr>';
+  html += '<th style="text-align:center;min-width:70px">Azioni</th>';
+  cols.forEach(c => { html += '<th>' + c + '</th>'; });
+  html += '</tr></thead><tbody>';
+
+  rows.forEach(r => {
+    const ref = r['Internal Ref'] || '';
+    const rowId = r['_row_id'] || '';
+    const stato = r['Stato'] || '';
+    const chtype = r['Change Type'] || '';
+    const name = ((r['First Name'] || '') + ' ' + (r['Last Name'] || '')).trim();
+    const cls = stato === 'CXL' ? 'r-red' : stato === 'NO SHOW' ? 'r-red' : (chtype ? 'r-yellow' : 'r-green');
+    const rowClick = ref ? ' onclick="openEditModal(\'' + ref + '\')" style="cursor:pointer"' : '';
+    html += '<tr class="' + cls + '"' + rowClick + '>';
+
+    html += '<td style="text-align:center;white-space:nowrap" onclick="event.stopPropagation()">';
+    if (ref) {
+      html += '<button onclick="openEditModal(\'' + ref + '\')" title="Modifica" ' +
+        'style="background:#DCFCE7;border:none;cursor:pointer;font-size:13px;padding:2px 6px;border-radius:4px;color:#166534" ' +
+        'onmouseenter="this.style.background=\'#BBF7D0\'" onmouseleave="this.style.background=\'#DCFCE7\'">✏️</button>';
+    }
+    if (rowId) {
+      const isNoShow = (stato === 'NO SHOW');
+      if (isNoShow) {
+        html += '<span style="font-size:9px;padding:2px 6px;border-radius:4px;background:#FEE2E2;color:#991B1B;font-weight:700" title="Già NO SHOW">NS</span>';
+      } else {
+        html += '<button onclick="quickNoShow(' + rowId + ')" title="Segna No Show" ' +
+          'style="background:none;border:none;cursor:pointer;font-size:10px;padding:2px 6px;border-radius:4px;color:#94A3B8;font-weight:600" ' +
+          'onmouseenter="this.style.color=\'#DC2626\';this.style.background=\'#FEE2E2\'" ' +
+          'onmouseleave="this.style.color=\'#94A3B8\';this.style.background=\'none\'">NS</button>';
+      }
+    }
+    html += '</td>';
+
+    cols.forEach(c => { html += '<td>' + (r[c] || '') + '</td>'; });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  return html;
+}
+
+// ── Azione rapida No Show (usa DB id, non ref — sicuro con nomi duplicati) ──
+async function quickNoShow(rowId) {
+  if (!confirm('Segnare questo partecipante come NO SHOW?')) return;
+
+  const res = await fetch('/api/no-show', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ row_id: rowId })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    alert((data.name || 'Partecipante') + ' segnato come NO SHOW');
+    runModQuery();
+    loadModLog();
+  } else {
+    alert('Errore: ' + (data.error || 'sconosciuto'));
+  }
+}
+
+// ── Aggiunta persone ──
+function openAddPerson() {
+  document.getElementById('addPersonModal').style.display = 'flex';
+}
+function closeAddPerson() {
+  document.getElementById('addPersonModal').style.display = 'none';
+}
+
+async function saveNewPerson() {
+  const inputs = document.querySelectorAll('#addPersonForm [data-field]');
+  const fields = {};
+  let hasName = false;
+  inputs.forEach(el => {
+    const val = el.tagName === 'BUTTON' ? (el.dataset.value || '') : el.value;
+    if (val) fields[el.dataset.field] = val;
+    if (el.dataset.field === 'last_name' && val.trim()) hasName = true;
+  });
+
+  if (!hasName) {
+    alert('Il cognome e obbligatorio');
+    return;
+  }
+
+  const btn = document.querySelector('#addPersonModal button[onclick="saveNewPerson()"]');
+  if (btn) { btn.textContent = 'Salvataggio...'; btn.disabled = true; }
+
+  const res = await fetch('/api/add-participant', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ fields: fields })
+  });
+  const data = await res.json();
+
+  if (data.ok) {
+    const pName = (fields.first_name || '') + ' ' + (fields.last_name || '');
+    const linkedRef = document.getElementById('linkedPersonRef').value;
+    let details = 'Nuovo partecipante aggiunto. Hotel: ' + (fields.hotel || '—');
+    if (linkedRef) details += ', collegato a: ' + document.getElementById('linkedPersonName').textContent;
+
+    // Calcola notti attive dalla modal aggiunta
+    const addNightBtns = document.querySelectorAll('#addPersonForm button[data-field^="night_"]');
+    const addNightImpacts = {};
+    [...addNightBtns].forEach(b => {
+      if (b.dataset.field !== 'night_no_need' && b.dataset.active === '1') {
+        addNightImpacts[b.dataset.field] = 1;
+      }
+    });
+
+    await fetch('/api/modification-log', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        internal_reference: data.ref,
+        participant_name: pName.trim(),
+        category: 'ADD_PERSON', action: 'NEW',
+        hotel: fields.hotel || null,
+        details: details,
+        night_impacts: Object.keys(addNightImpacts).length ? addNightImpacts : null
+      })
+    });
+    alert('Partecipante aggiunto: ' + pName.trim() + ' (ref: ' + data.ref + ')');
+    closeAddPerson();
+    loadModLog();
+  } else {
+    alert('Errore: ' + (data.error || 'sconosciuto'));
+  }
+
+  if (btn) { btn.textContent = 'Salva'; btn.disabled = false; }
+}
+
+// ── Log modifiche recenti ──
+async function loadModLog() {
+  const res = await fetch('/api/modification-log-list');
+  const data = await res.json();
+  const div = document.getElementById('modLogBody');
+
+  if (!data.entries || !data.entries.length) {
+    div.innerHTML = '<p style="color:#94A3B8">Nessuna modifica registrata</p>';
+    return;
+  }
+
+  const CATEGORY_COLORS = {
+    'NIGHT_CHANGE': {bg:'#EFF6FF', color:'#1D4ED8', label:'Night Change'},
+    'HOTEL_CHANGE': {bg:'#F0FDF4', color:'#166534', label:'Hotel Change'},
+    'NO_SHOW':      {bg:'#FEF2F2', color:'#991B1B', label:'No Show'},
+    'ADD_PERSON':   {bg:'#F5F3FF', color:'#6D28D9', label:'Aggiunta Persona'},
+  };
+
+  let html = '<table style="width:100%;border-collapse:collapse">';
+  html += '<thead><tr style="background:#F8FAFC;border-bottom:2px solid #E2E8F0">' +
+    '<th style="text-align:left;padding:8px 10px;color:#64748B;font-size:11px">Data</th>' +
+    '<th style="text-align:left;padding:8px 10px;color:#64748B;font-size:11px">Tipo</th>' +
+    '<th style="text-align:left;padding:8px 10px;color:#64748B;font-size:11px">Partecipante</th>' +
+    '<th style="text-align:left;padding:8px 10px;color:#64748B;font-size:11px">Dettagli</th>' +
+    '<th style="text-align:left;padding:8px 10px;color:#64748B;font-size:11px">Utente</th>' +
+    '</tr></thead><tbody>';
+
+  data.entries.forEach(e => {
+    const cat = CATEGORY_COLORS[e.category] || {bg:'#F8FAFC', color:'#374151', label:e.category};
+    html += '<tr style="border-bottom:1px solid #F1F5F9">' +
+      '<td style="padding:7px 10px;font-size:12px;color:#64748B;white-space:nowrap">' + e.modified_at + '</td>' +
+      '<td style="padding:7px 10px"><span style="background:' + cat.bg + ';color:' + cat.color +
+        ';padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">' + cat.label + '</span></td>' +
+      '<td style="padding:7px 10px;font-size:12px;font-weight:500">' + (e.participant_name || e.ref) + '</td>' +
+      '<td style="padding:7px 10px;font-size:12px;color:#6B7280">' + (e.details || '') + '</td>' +
+      '<td style="padding:7px 10px;font-size:12px;color:#64748B">' + e.modified_by + '</td>' +
+      '</tr>';
+  });
+  html += '</tbody></table>';
+  div.innerHTML = html;
+}
+
+// ── Ricerca partecipante collegato (per modal aggiunta) ──
+let _linkedTimer = null;
+function searchLinkedPerson(q) {
+  clearTimeout(_linkedTimer);
+  const div = document.getElementById('linkedPersonResults');
+  if (q.trim().length < 2) { div.style.display = 'none'; return; }
+  _linkedTimer = setTimeout(async () => {
+    const res = await fetch('/api/search-participants-global?q=' + encodeURIComponent(q.trim()));
+    const data = await res.json();
+    div.innerHTML = '';
+    if (!data.results.length) {
+      div.innerHTML = '<div style="padding:6px 10px;color:#94A3B8;font-size:12px">Nessun risultato</div>';
+    } else {
+      data.results.forEach(r => {
+        const row = document.createElement('div');
+        row.style.cssText = 'padding:6px 10px;cursor:pointer;font-size:12px;border-bottom:1px solid #F1F5F9;display:flex;justify-content:space-between';
+        row.onmouseover = () => row.style.background = '#EFF6FF';
+        row.onmouseout = () => row.style.background = '';
+        row.innerHTML = '<span><b>' + r.last_name + '</b> ' + r.first_name + '</span><span style="color:#94A3B8">' + (r.hotel || '') + '</span>';
+        row.onclick = () => selectLinkedPerson(r.ref, r.first_name + ' ' + r.last_name);
+        div.appendChild(row);
+      });
+    }
+    div.style.display = '';
+  }, 300);
+}
+
+function selectLinkedPerson(ref, name) {
+  document.getElementById('linkedPersonRef').value = ref;
+  document.getElementById('linkedPersonName').textContent = name + ' (ref: ' + ref + ')';
+  document.getElementById('linkedPersonSelected').style.display = '';
+  document.getElementById('linkedPersonResults').style.display = 'none';
+  document.getElementById('linkedPersonSearch').value = '';
+}
+
+function clearLinkedPerson() {
+  document.getElementById('linkedPersonRef').value = '';
+  document.getElementById('linkedPersonSelected').style.display = 'none';
+}
+
+// ── Init ──
+// ── Analisi modifiche ──
+let _analysisOpen = false;
+function toggleAnalysis() {
+  _analysisOpen = !_analysisOpen;
+  document.getElementById('analysisPanel').style.display = _analysisOpen ? '' : 'none';
+  if (_analysisOpen) loadAnalysis();
+}
+
+async function loadAnalysis() {
+  const dateFrom = document.getElementById('analysisDate').value;
+  const res = await fetch('/api/modification-log-analysis?from=' + encodeURIComponent(dateFrom));
+  const data = await res.json();
+
+  document.getElementById('countNoShow').textContent = data.counts.NO_SHOW || 0;
+  document.getElementById('countNight').textContent = data.counts.NIGHT_CHANGE || 0;
+  document.getElementById('countHotel').textContent = data.counts.HOTEL_CHANGE || 0;
+  document.getElementById('countAdd').textContent = data.counts.ADD_PERSON || 0;
+
+  const CATS = [
+    {key:'NO_SHOW',      label:'No Show',         bg:'#FEF2F2', border:'#FECACA', color:'#991B1B'},
+    {key:'NIGHT_CHANGE', label:'Night Change',     bg:'#EFF6FF', border:'#BFDBFE', color:'#1D4ED8'},
+    {key:'HOTEL_CHANGE', label:'Hotel Change',     bg:'#F0FDF4', border:'#BBF7D0', color:'#166534'},
+    {key:'ADD_PERSON',   label:'Aggiunta Persone', bg:'#F5F3FF', border:'#DDD6FE', color:'#6D28D9'},
+  ];
+
+  let html = '';
+  CATS.forEach(cat => {
+    const entries = data.by_category[cat.key] || [];
+    if (!entries.length) return;
+    html += '<div style="margin-bottom:16px">';
+    html += '<h3 style="font-size:13px;color:' + cat.color + ';margin:0 0 8px;font-weight:700">' + cat.label + ' (' + entries.length + ')</h3>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:12px">';
+    html += '<thead><tr style="background:' + cat.bg + ';border-bottom:1px solid ' + cat.border + '">' +
+      '<th style="text-align:left;padding:6px 10px;color:' + cat.color + '">Data</th>' +
+      '<th style="text-align:left;padding:6px 10px;color:' + cat.color + '">Partecipante</th>' +
+      '<th style="text-align:left;padding:6px 10px;color:' + cat.color + '">Dettagli</th>' +
+      '<th style="text-align:left;padding:6px 10px;color:' + cat.color + '">Utente</th>' +
+      '</tr></thead><tbody>';
+    entries.forEach(e => {
+      html += '<tr style="border-bottom:1px solid #F1F5F9">' +
+        '<td style="padding:5px 10px;color:#64748B;white-space:nowrap">' + e.modified_at + '</td>' +
+        '<td style="padding:5px 10px;font-weight:500">' + (e.participant_name || e.ref) + '</td>' +
+        '<td style="padding:5px 10px;color:#6B7280">' + (e.details || '') + '</td>' +
+        '<td style="padding:5px 10px;color:#64748B">' + e.modified_by + '</td>' +
+        '</tr>';
+    });
+    html += '</tbody></table></div>';
+  });
+
+  document.getElementById('analysisDetail').innerHTML = html || '<p style="color:#94A3B8">Nessuna modifica nel periodo selezionato</p>';
+}
+
+async function exportAnalysis() {
+  const dateFrom = document.getElementById('analysisDate').value;
+  window.location.href = '/api/modification-log-export?from=' + encodeURIComponent(dateFrom);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  addModQueryRow();  // Parte con una riga di default
+  loadModLog();
+});
+</script>
+
+
+<!-- ── Modal Aggiunta Persona ─────────────────────────────────────────── -->
+<div id="addPersonModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);
+     z-index:2000;align-items:flex-start;justify-content:center;overflow-y:auto;padding:40px 16px">
+  <div style="background:#fff;border-radius:12px;width:100%;max-width:960px;box-shadow:0 12px 40px rgba(0,0,0,.25)">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:18px 24px;border-bottom:1px solid #E2E8F0">
+      <h2 style="margin:0;font-size:17px;color:#8B5CF6">Aggiungi partecipante</h2>
+      <button onclick="closeAddPerson()"
+              style="background:#F1F5F9;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:16px">x</button>
+    </div>
+    <div id="addPersonForm" style="padding:20px 24px;max-height:65vh;overflow-y:auto">
+
+      <!-- Collegamento a partecipante esistente -->
+      <div style="background:#EFF6FF;border:2px solid #3B82F6;border-radius:9px;padding:12px 16px;margin-bottom:12px">
+        <label style="font-size:12px;font-weight:700;color:#1D4ED8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;display:block">
+          Collegato a (opzionale)
+        </label>
+        <div style="font-size:11px;color:#64748B;margin-bottom:8px">Se questa persona è accompagnatore/spouse di un partecipante esistente, cercalo qui</div>
+        <input id="linkedPersonSearch" type="text" placeholder="Cerca per cognome o nome..."
+               oninput="searchLinkedPerson(this.value)"
+               style="width:100%;padding:7px 10px;border:1px solid #93C5FD;border-radius:6px;font-size:13px">
+        <div id="linkedPersonResults" style="margin-top:6px;max-height:150px;overflow-y:auto;display:none"></div>
+        <div id="linkedPersonSelected" style="display:none;margin-top:8px;background:#DCFCE7;border:1px solid #86EFAC;border-radius:6px;padding:8px 12px;font-size:13px">
+          <span id="linkedPersonName" style="font-weight:500"></span>
+          <input type="hidden" id="linkedPersonRef" data-field="internal_parent_reference" value="">
+          <button onclick="clearLinkedPerson()" style="float:right;background:none;border:none;color:#991B1B;cursor:pointer;font-size:12px">x rimuovi</button>
+        </div>
+      </div>
+
+      <!-- Notti toggle -->
+      <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:7px;padding:12px 14px;margin-bottom:12px">
+        <label style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase;margin-bottom:10px;display:block">Notti</label>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+            <span style="font-size:10px;color:#64748B;font-weight:500">28/03</span>
+            <button type="button" data-field="night_sat_28mar" data-value="" data-active="0" onclick="toggleNight(this)"
+              style="width:44px;height:28px;border-radius:6px;border:2px solid #CBD5E1;background:#F1F5F9;cursor:pointer;font-size:14px">—</button>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+            <span style="font-size:10px;color:#64748B;font-weight:500">29/03</span>
+            <button type="button" data-field="night_sun_29mar" data-value="" data-active="0" onclick="toggleNight(this)"
+              style="width:44px;height:28px;border-radius:6px;border:2px solid #CBD5E1;background:#F1F5F9;cursor:pointer;font-size:14px">—</button>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+            <span style="font-size:10px;color:#64748B;font-weight:500">30/03</span>
+            <button type="button" data-field="night_mon_30mar" data-value="" data-active="0" onclick="toggleNight(this)"
+              style="width:44px;height:28px;border-radius:6px;border:2px solid #CBD5E1;background:#F1F5F9;cursor:pointer;font-size:14px">—</button>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+            <span style="font-size:10px;color:#64748B;font-weight:500">31/03</span>
+            <button type="button" data-field="night_tue_31mar" data-value="" data-active="0" onclick="toggleNight(this)"
+              style="width:44px;height:28px;border-radius:6px;border:2px solid #CBD5E1;background:#F1F5F9;cursor:pointer;font-size:14px">—</button>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+            <span style="font-size:10px;color:#64748B;font-weight:500">01/04</span>
+            <button type="button" data-field="night_wed_1apr" data-value="" data-active="0" onclick="toggleNight(this)"
+              style="width:44px;height:28px;border-radius:6px;border:2px solid #CBD5E1;background:#F1F5F9;cursor:pointer;font-size:14px">—</button>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+            <span style="font-size:10px;color:#64748B;font-weight:500">02/04</span>
+            <button type="button" data-field="night_thu_2apr" data-value="" data-active="0" onclick="toggleNight(this)"
+              style="width:44px;height:28px;border-radius:6px;border:2px solid #CBD5E1;background:#F1F5F9;cursor:pointer;font-size:14px">—</button>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+            <span style="font-size:10px;color:#64748B;font-weight:500">03/04</span>
+            <button type="button" data-field="night_fri_3apr" data-value="" data-active="0" onclick="toggleNight(this)"
+              style="width:44px;height:28px;border-radius:6px;border:2px solid #CBD5E1;background:#F1F5F9;cursor:pointer;font-size:14px">—</button>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+            <span style="font-size:10px;color:#64748B;font-weight:500">04/04</span>
+            <button type="button" data-field="night_sat_4apr" data-value="" data-active="0" onclick="toggleNight(this)"
+              style="width:44px;height:28px;border-radius:6px;border:2px solid #CBD5E1;background:#F1F5F9;cursor:pointer;font-size:14px">—</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Campi principali -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:7px;padding:10px 12px">
+          <label style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase">Cognome *</label>
+          <input type="text" data-field="last_name" style="width:100%;padding:5px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:12px;margin-top:4px">
+        </div>
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:7px;padding:10px 12px">
+          <label style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase">Nome</label>
+          <input type="text" data-field="first_name" style="width:100%;padding:5px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:12px;margin-top:4px">
+        </div>
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:7px;padding:10px 12px">
+          <label style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase">Titolo</label>
+          <input type="text" data-field="title" style="width:100%;padding:5px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:12px;margin-top:4px">
+        </div>
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:7px;padding:10px 12px">
+          <label style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase">Hotel</label>
+          <input type="text" data-field="hotel" style="width:100%;padding:5px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:12px;margin-top:4px">
+        </div>
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:7px;padding:10px 12px">
+          <label style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase">Billing</label>
+          <input type="text" data-field="billing" style="width:100%;padding:5px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:12px;margin-top:4px">
+        </div>
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:7px;padding:10px 12px">
+          <label style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase">Company</label>
+          <input type="text" data-field="company_name" style="width:100%;padding:5px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:12px;margin-top:4px">
+        </div>
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:7px;padding:10px 12px">
+          <label style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase">Paese</label>
+          <input type="text" data-field="company_country" style="width:100%;padding:5px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:12px;margin-top:4px">
+        </div>
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:7px;padding:10px 12px">
+          <label style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase">Email</label>
+          <input type="text" data-field="email" style="width:100%;padding:5px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:12px;margin-top:4px">
+        </div>
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:7px;padding:10px 12px">
+          <label style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase">Telefono</label>
+          <input type="text" data-field="phone" style="width:100%;padding:5px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:12px;margin-top:4px">
+        </div>
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:7px;padding:10px 12px">
+          <label style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase">Job Position</label>
+          <input type="text" data-field="job_position" style="width:100%;padding:5px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:12px;margin-top:4px">
+        </div>
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:7px;padding:10px 12px">
+          <label style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase">Commento</label>
+          <input type="text" data-field="comment" style="width:100%;padding:5px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:12px;margin-top:4px">
+        </div>
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:7px;padding:10px 12px">
+          <label style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase">Upgrade</label>
+          <input type="text" data-field="upgrade" style="width:100%;padding:5px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:12px;margin-top:4px">
+        </div>
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:7px;padding:10px 12px">
+          <label style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase">Dieta</label>
+          <input type="text" data-field="diet_restrictions" style="width:100%;padding:5px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:12px;margin-top:4px">
+        </div>
+        <div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:7px;padding:10px 12px">
+          <label style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase">Arrivo</label>
+          <input type="text" data-field="arrival_mode" style="width:100%;padding:5px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:12px;margin-top:4px">
+        </div>
+      </div>
+    </div>
+    <div style="padding:16px 24px;border-top:1px solid #E2E8F0;display:flex;justify-content:space-between">
+      <button onclick="closeAddPerson()"
+              style="background:#F1F5F9;color:#374151;border:none;padding:8px 20px;border-radius:7px;cursor:pointer">Chiudi</button>
+      <button onclick="saveNewPerson()"
+              style="background:#8B5CF6;color:#fff;border:none;padding:9px 24px;border-radius:7px;cursor:pointer;font-size:14px;font-weight:500">
+        Salva
+      </button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
