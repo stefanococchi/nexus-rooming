@@ -35,8 +35,12 @@
             {% endfor %}
         </div>
         {% endif %}
-        <a href="{{ url_for('rooming.export_hotel', batch_id=batch_id, hotel_name=hotel) }}"
-           class="btn-export-hotel">⬇ Scarica Excel</a>
+        <div style="display:flex;gap:6px">
+            <a href="{{ url_for('rooming.export_hotel', batch_id=batch_id, hotel_name=hotel) }}"
+               class="btn-export-hotel" style="flex:1;text-align:center">⬇ Scarica Excel</a>
+            <a href="{{ url_for('rooming.export_hotel_finale', batch_id=batch_id, hotel_name=hotel) }}"
+               class="btn-export-hotel" style="flex:1;text-align:center;background:#059669">⬇ FINALE</a>
+        </div>
     </div>
 {% endfor %}
 

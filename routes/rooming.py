@@ -255,7 +255,7 @@ def cell_val(field, row):
     return '' if s.lower() in ('none', 'nan') else s
 
 
-def build_hotel_excel(hotel_name, rows, diff, batch_id, prev_batch_id):
+def build_hotel_excel(hotel_name, rows, diff, batch_id, prev_batch_id, finale=False):
     from models.models import HotelContract
     from datetime import date as _date_type
 
@@ -358,8 +358,9 @@ def build_hotel_excel(hotel_name, rows, diff, batch_id, prev_batch_id):
     # Riga 1 — Titolo
     ws.merge_cells(start_row=1, start_column=1,
                    end_row=1,   end_column=len(EXPORT_COLS))
+    title_prefix = 'ROOMING LIST FINALE' if finale else 'ROOMING LIST'
     tc = ws.cell(row=1, column=1,
-                 value=f'ROOMING LIST — {hotel_name.upper()}')
+                 value=f'{title_prefix} — {hotel_name.upper()}')
     tc.font      = Font(name='Calibri', bold=True, size=14, color='1F3864')
     tc.alignment = center
     ws.row_dimensions[1].height = 26
@@ -369,8 +370,12 @@ def build_hotel_excel(hotel_name, rows, diff, batch_id, prev_batch_id):
                    end_row=2,   end_column=len(EXPORT_COLS))
     sub = f"Import: {batch_id[:19].replace('_', ' ')}"
     if prev_batch_id:
-        sub += (f"  |  Confronto con: {prev_batch_id[:19].replace('_', ' ')}"
-                f"  |  🟡 Modificato   🟢 Nuovo   🔴 CXL")
+        if finale:
+            sub += (f"  |  Confronto con: {prev_batch_id[:19].replace('_', ' ')}"
+                    f"  |  🟡 Modificato   🟢 Confermato")
+        else:
+            sub += (f"  |  Confronto con: {prev_batch_id[:19].replace('_', ' ')}"
+                    f"  |  🟡 Modificato   🟢 Nuovo   🔴 CXL")
     ws.cell(row=2, column=1, value=sub).font = Font(name='Calibri', size=9, italic=True)
     ws.row_dimensions[2].height = 14
 
@@ -383,16 +388,23 @@ def build_hotel_excel(hotel_name, rows, diff, batch_id, prev_batch_id):
         c.border    = thin
     ws.row_dimensions[3].height = 20
 
-    def sort_key(r):
-        if r.is_cxl:
-            group = 2
-        elif r.change_date or (r.latest_changes and str(r.latest_changes).strip()):
-            group = 1
-        else:
-            group = 0
-        return (group, str(r.last_name or '').upper(), str(r.first_name or '').upper())
+    if finale:
+        # FINALE: escludi CXL, ordina tutti per cognome alfabetico
+        rows_filtered = [r for r in rows if not r.is_cxl]
+        rows_sorted = sorted(rows_filtered,
+                             key=lambda r: (str(r.last_name or '').upper(),
+                                            str(r.first_name or '').upper()))
+    else:
+        def sort_key(r):
+            if r.is_cxl:
+                group = 2
+            elif r.change_date or (r.latest_changes and str(r.latest_changes).strip()):
+                group = 1
+            else:
+                group = 0
+            return (group, str(r.last_name or '').upper(), str(r.first_name or '').upper())
 
-    rows_sorted = sorted(rows, key=sort_key)
+        rows_sorted = sorted(rows, key=sort_key)
 
     for rn, row in enumerate(rows_sorted, 4):
         ref = row.internal_reference or f'__noref_{row.last_name}_{row.first_name}'
@@ -765,6 +777,34 @@ def export_hotel(batch_id, hotel_name):
     return send_file(buf,
                      as_attachment=True,
                      download_name=f'RoomingList_{safe}_{ts}.xlsx',
+                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+
+@rooming_bp.route('/export-finale/<path:batch_id>/<hotel_name>')
+def export_hotel_finale(batch_id, hotel_name):
+    rows = RoomingList.query.filter_by(import_batch=batch_id, hotel=hotel_name).all()
+    if not rows:
+        flash('Nessun partecipante trovato.', 'error')
+        return redirect(url_for('rooming.batch_detail', batch_id=batch_id))
+
+    all_batches = get_batches()
+    batch_ids   = [b[0] for b in all_batches]
+    try:
+        idx        = batch_ids.index(batch_id)
+        prev_batch = batch_ids[idx + 1] if idx + 1 < len(batch_ids) else None
+    except ValueError:
+        prev_batch = None
+
+    diff = {}
+    if prev_batch:
+        diff = compute_diff(fetch_batch_dict(batch_id), fetch_batch_dict(prev_batch))
+
+    buf, total, active, cxl = build_hotel_excel(hotel_name, rows, diff, batch_id, prev_batch, finale=True)
+    safe = hotel_name.replace('/', '-').replace(' ', '_')
+    ts   = datetime.now().strftime('%Y%m%d')
+    return send_file(buf,
+                     as_attachment=True,
+                     download_name=f'RoomingList_FINALE_{safe}_{ts}.xlsx',
                      mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
 
