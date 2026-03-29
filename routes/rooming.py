@@ -392,7 +392,8 @@ def build_hotel_excel(hotel_name, rows, diff, batch_id, prev_batch_id, finale=Fa
         # FINALE: escludi CXL, ordina tutti per cognome alfabetico
         rows_filtered = [r for r in rows if not r.is_cxl]
         rows_sorted = sorted(rows_filtered,
-                             key=lambda r: (str(r.last_name or '').upper(),
+                             key=lambda r: (get_checkin(r) or date.max,
+                                            str(r.last_name or '').upper(),
                                             str(r.first_name or '').upper()))
     else:
         def sort_key(r):
