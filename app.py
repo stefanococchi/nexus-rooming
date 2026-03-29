@@ -122,6 +122,9 @@ def create_app():
     from routes.rooming import rooming_bp
     app.register_blueprint(rooming_bp)
 
+    from routes.email_agent import email_agent_bp
+    app.register_blueprint(email_agent_bp)
+
     with app.app_context():
         db.create_all()
 

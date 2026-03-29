@@ -1,0 +1,372 @@
+{% extends "base.html" %}
+{% block title %}Email Agent{% endblock %}
+{% block content %}
+
+<div style="max-width:900px;margin:0 auto;padding:24px 16px">
+
+  <h2 style="margin:0 0 8px;color:#1F3864">Email Agent</h2>
+  <p style="color:#64748B;margin:0 0 24px;font-size:14px">
+    Incolla il testo di un'email con richieste di modifica rooming. Il sistema le interpreta e le applica dopo la tua conferma.
+  </p>
+
+  <!-- ══ STATO 1: INPUT ══ -->
+  <div id="stepInput">
+    <textarea id="emailText" rows="12"
+      style="width:100%;padding:14px;border:2px solid #CBD5E1;border-radius:10px;font-family:'DM Sans',sans-serif;
+             font-size:14px;resize:vertical;outline:none;transition:border-color .2s"
+      onfocus="this.style.borderColor='#2563EB'" onblur="this.style.borderColor='#CBD5E1'"
+      placeholder="Incolla qui il testo dell'email..."></textarea>
+
+    <div style="margin-top:16px;display:flex;gap:12px">
+      <button onclick="parseEmail()" id="btnParse"
+        style="background:#EA580C;color:#fff;border:none;padding:12px 28px;border-radius:8px;
+               font-size:15px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:8px">
+        Analizza Email
+      </button>
+      <div id="spinner" style="display:none;align-items:center;gap:8px;color:#64748B;font-size:14px">
+        <div style="width:20px;height:20px;border:3px solid #E2E8F0;border-top-color:#EA580C;
+                    border-radius:50%;animation:spin 0.8s linear infinite"></div>
+        Analisi in corso...
+      </div>
+    </div>
+
+    <div id="parseError" style="display:none;margin-top:16px;padding:12px 16px;background:#FEF2F2;
+         border:1px solid #FECACA;border-radius:8px;color:#DC2626;font-size:14px"></div>
+  </div>
+
+  <!-- ══ STATO 2: ANTEPRIMA ══ -->
+  <div id="stepPreview" style="display:none">
+    <div id="summaryBox" style="padding:12px 16px;background:#EFF6FF;border:1px solid #BFDBFE;
+         border-radius:8px;color:#1D4ED8;font-size:14px;margin-bottom:20px"></div>
+
+    <div id="actionsContainer"></div>
+
+    <div style="margin-top:24px;display:flex;gap:12px">
+      <button onclick="executeActions()" id="btnExecute"
+        style="background:#059669;color:#fff;border:none;padding:12px 28px;border-radius:8px;
+               font-size:15px;font-weight:600;cursor:pointer">
+        Conferma ed Esegui
+      </button>
+      <button onclick="resetToInput()"
+        style="background:#F1F5F9;color:#374151;border:1px solid #CBD5E1;padding:12px 28px;
+               border-radius:8px;font-size:15px;font-weight:500;cursor:pointer">
+        Annulla
+      </button>
+      <div id="execSpinner" style="display:none;align-items:center;gap:8px;color:#64748B;font-size:14px">
+        <div style="width:20px;height:20px;border:3px solid #E2E8F0;border-top-color:#059669;
+                    border-radius:50%;animation:spin 0.8s linear infinite"></div>
+        Esecuzione...
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ STATO 3: RISULTATO ══ -->
+  <div id="stepResult" style="display:none">
+    <div id="resultContainer"></div>
+    <button onclick="resetAll()" style="margin-top:20px;background:#1F3864;color:#fff;border:none;
+            padding:12px 28px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer">
+      Nuova Email
+    </button>
+  </div>
+
+</div>
+
+<style>
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.action-card {
+  border: 2px solid #E2E8F0;
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 12px;
+  background: #fff;
+  transition: border-color .2s;
+}
+.action-card.type-CANCEL_NIGHTS  { border-left: 5px solid #DC2626; }
+.action-card.type-ADD_NIGHTS     { border-left: 5px solid #16A34A; }
+.action-card.type-HOTEL_CHANGE   { border-left: 5px solid #2563EB; }
+.action-card.type-ADD_PERSON     { border-left: 5px solid #7C3AED; }
+
+.night-pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  margin: 2px 3px;
+}
+.night-pill.del { background: #FEE2E2; color: #DC2626; }
+.night-pill.add { background: #DCFCE7; color: #16A34A; }
+
+.status-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.status-resolved    { background: #DCFCE7; color: #16A34A; }
+.status-new_person  { background: #F3E8FF; color: #7C3AED; }
+.status-ambiguous   { background: #FEF3C7; color: #D97706; }
+.status-not_found   { background: #FEE2E2; color: #DC2626; }
+
+.result-ok   { padding:12px 16px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;margin-bottom:8px;color:#16A34A }
+.result-fail { padding:12px 16px;background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;margin-bottom:8px;color:#DC2626 }
+</style>
+
+<script>
+const NIGHT_LABELS = {
+  'night_sat_28mar': '28/03',
+  'night_sun_29mar': '29/03',
+  'night_mon_30mar': '30/03',
+  'night_tue_31mar': '31/03',
+  'night_wed_1apr':  '01/04',
+  'night_thu_2apr':  '02/04',
+  'night_fri_3apr':  '03/04',
+  'night_sat_4apr':  '04/04',
+};
+
+const TYPE_LABELS = {
+  'CANCEL_NIGHTS': 'Cancella Notti',
+  'ADD_NIGHTS':    'Aggiungi Notti',
+  'HOTEL_CHANGE':  'Cambio Hotel',
+  'ADD_PERSON':    'Nuova Persona',
+};
+
+let parsedActions = [];
+
+/* ── PARSE ── */
+async function parseEmail() {
+  const text = document.getElementById('emailText').value.trim();
+  if (!text) return;
+
+  document.getElementById('btnParse').disabled = true;
+  document.getElementById('spinner').style.display = 'flex';
+  document.getElementById('parseError').style.display = 'none';
+
+  try {
+    const res = await fetch('/api/email-agent/parse', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email_text: text}),
+    });
+    const data = await res.json();
+
+    if (!data.ok) {
+      document.getElementById('parseError').textContent = data.error;
+      document.getElementById('parseError').style.display = 'block';
+      return;
+    }
+
+    parsedActions = data.actions;
+    document.getElementById('summaryBox').textContent = data.summary || 'Azioni estratte:';
+    renderActions(parsedActions);
+
+    document.getElementById('stepInput').style.display = 'none';
+    document.getElementById('stepPreview').style.display = 'block';
+
+  } catch (e) {
+    document.getElementById('parseError').textContent = 'Errore di rete: ' + e.message;
+    document.getElementById('parseError').style.display = 'block';
+  } finally {
+    document.getElementById('btnParse').disabled = false;
+    document.getElementById('spinner').style.display = 'none';
+  }
+}
+
+/* ── RENDER AZIONI ── */
+function renderActions(actions) {
+  const container = document.getElementById('actionsContainer');
+  container.innerHTML = '';
+
+  actions.forEach((act, idx) => {
+    const card = document.createElement('div');
+    card.className = `action-card type-${act.type}`;
+    card.dataset.idx = idx;
+
+    // Header con checkbox e tipo
+    let html = `
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+        <input type="checkbox" checked data-idx="${idx}" class="action-check"
+               style="width:18px;height:18px;cursor:pointer">
+        <span style="font-weight:700;font-size:15px;color:#1F3864">
+          ${act.last_name}${act.first_name ? ' ' + act.first_name : ''}
+        </span>
+        <span class="status-badge status-${act.status}">
+          ${act.status === 'resolved' ? 'Trovato' :
+            act.status === 'new_person' ? 'Nuova persona' :
+            act.status === 'ambiguous' ? 'Ambiguo' : 'Non trovato'}
+        </span>
+        <span style="margin-left:auto;font-size:13px;font-weight:600;color:#64748B">
+          ${TYPE_LABELS[act.type] || act.type}
+        </span>
+      </div>`;
+
+    // Info partecipante trovato
+    if (act.match) {
+      html += `<div style="font-size:13px;color:#64748B;margin-bottom:8px">
+        Ref: <strong>${act.match.internal_reference}</strong> &mdash;
+        Hotel: <strong>${act.match.current_hotel || '—'}</strong> &mdash;
+        Notti attive: ${act.match.current_nights.map(n =>
+          `<span class="night-pill add">${NIGHT_LABELS[n] || n}</span>`).join('') || 'nessuna'}
+      </div>`;
+    }
+
+    // Dropdown ambiguità
+    if (act.status === 'ambiguous') {
+      html += `<div style="background:#FEF3C7;padding:10px 14px;border-radius:8px;margin-bottom:10px;font-size:13px">
+        Seleziona il partecipante corretto:
+        <select onchange="resolveAmbiguity(${idx}, this.value)"
+                style="margin-left:8px;padding:4px 8px;border-radius:6px;border:1px solid #D97706;font-size:13px">
+          <option value="">-- Scegli --</option>
+          ${act.candidates.map(c =>
+            `<option value="${c.internal_reference}">${c.display_name} (${c.current_hotel || '—'}) [${c.internal_reference}]</option>`
+          ).join('')}
+        </select>
+      </div>`;
+    }
+
+    // Warning non trovato
+    if (act.status === 'not_found') {
+      html += `<div style="background:#FEE2E2;padding:10px 14px;border-radius:8px;margin-bottom:10px;
+               font-size:13px;color:#DC2626">
+        Partecipante non trovato nel batch corrente. Deseleziona o verifica il nome.
+      </div>`;
+    }
+
+    // Notti coinvolte
+    if (act.nights && act.nights.length > 0) {
+      const pillClass = act.type === 'CANCEL_NIGHTS' ? 'del' : 'add';
+      html += `<div style="margin-top:6px">
+        Notti: ${act.nights.map(n =>
+          `<span class="night-pill ${pillClass}">${NIGHT_LABELS[n] || n}</span>`).join('')}
+      </div>`;
+    } else if (act.all_nights) {
+      html += `<div style="margin-top:6px"><span class="night-pill del">TUTTE LE NOTTI</span></div>`;
+    }
+
+    // Hotel
+    if (act.hotel) {
+      html += `<div style="margin-top:6px;font-size:13px;color:#64748B">
+        Hotel: <strong>${act.hotel}</strong>
+        ${act.new_hotel ? ` &rarr; <strong>${act.new_hotel}</strong>` : ''}
+      </div>`;
+    }
+
+    // Motivo
+    if (act.reason) {
+      html += `<div style="margin-top:6px;font-size:12px;color:#94A3B8;font-style:italic">${act.reason}</div>`;
+    }
+
+    card.innerHTML = html;
+    container.appendChild(card);
+  });
+}
+
+/* ── RISOLVI AMBIGUITÀ ── */
+function resolveAmbiguity(idx, ref) {
+  if (!ref) return;
+  const act = parsedActions[idx];
+  const chosen = act.candidates.find(c => c.internal_reference === ref);
+  if (chosen) {
+    act.status = 'resolved';
+    act.match = chosen;
+    if (act.type === 'CANCEL_NIGHTS' && act.all_nights) {
+      act.nights = chosen.current_nights;
+    }
+    renderActions(parsedActions);
+  }
+}
+
+/* ── ESEGUI ── */
+async function executeActions() {
+  const toExecute = [];
+
+  parsedActions.forEach((act, idx) => {
+    const check = document.querySelector(`.action-check[data-idx="${idx}"]`);
+    if (!check || !check.checked) return;
+    if (act.status === 'not_found') return;
+    if (act.status === 'ambiguous') return;
+
+    const payload = {
+      id: act.id,
+      type: act.type,
+      last_name: act.last_name,
+      first_name: act.first_name,
+      hotel: act.hotel || '',
+      nights: act.nights || [],
+      new_hotel: act.new_hotel || null,
+    };
+
+    if (act.match) {
+      payload.internal_reference = act.match.internal_reference;
+      payload.display_name = act.match.display_name;
+    }
+
+    toExecute.push(payload);
+  });
+
+  if (toExecute.length === 0) {
+    alert('Nessuna azione selezionata o risolta.');
+    return;
+  }
+
+  document.getElementById('btnExecute').disabled = true;
+  document.getElementById('execSpinner').style.display = 'flex';
+
+  try {
+    const res = await fetch('/api/email-agent/execute', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({actions: toExecute}),
+    });
+    const data = await res.json();
+
+    if (!data.ok) {
+      alert('Errore: ' + data.error);
+      return;
+    }
+
+    // Mostra risultati
+    const container = document.getElementById('resultContainer');
+    container.innerHTML = '<h3 style="color:#1F3864;margin:0 0 16px">Risultato</h3>';
+
+    data.results.forEach(r => {
+      const act = toExecute.find(a => a.id === r.id) || {};
+      const name = act.display_name || `${act.first_name || ''} ${act.last_name || ''}`.trim();
+      const div = document.createElement('div');
+      div.className = r.ok ? 'result-ok' : 'result-fail';
+      div.innerHTML = r.ok
+        ? `<strong>${name}</strong> &mdash; ${TYPE_LABELS[act.type] || act.type} applicato ${r.ref ? '(ref: ' + r.ref + ')' : ''}`
+        : `<strong>${name}</strong> &mdash; Errore: ${r.error}`;
+      container.appendChild(div);
+    });
+
+    document.getElementById('stepPreview').style.display = 'none';
+    document.getElementById('stepResult').style.display = 'block';
+
+  } catch (e) {
+    alert('Errore di rete: ' + e.message);
+  } finally {
+    document.getElementById('btnExecute').disabled = false;
+    document.getElementById('execSpinner').style.display = 'none';
+  }
+}
+
+/* ── NAVIGAZIONE ── */
+function resetToInput() {
+  document.getElementById('stepPreview').style.display = 'none';
+  document.getElementById('stepInput').style.display = 'block';
+  parsedActions = [];
+}
+
+function resetAll() {
+  document.getElementById('stepResult').style.display = 'none';
+  document.getElementById('stepInput').style.display = 'block';
+  document.getElementById('emailText').value = '';
+  parsedActions = [];
+}
+</script>
+
+{% endblock %}
