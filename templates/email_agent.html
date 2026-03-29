@@ -32,12 +32,21 @@
 
     <div id="parseError" style="display:none;margin-top:16px;padding:12px 16px;background:#FEF2F2;
          border:1px solid #FECACA;border-radius:8px;color:#DC2626;font-size:14px"></div>
+
+    <div style="margin-top:12px;font-size:12px;color:#94A3B8">
+      <a href="https://console.anthropic.com/settings/billing" target="_blank"
+         style="color:#94A3B8;text-decoration:underline">Controlla credito residuo Anthropic</a>
+    </div>
   </div>
 
   <!-- ══ STATO 2: ANTEPRIMA ══ -->
   <div id="stepPreview" style="display:none">
     <div id="summaryBox" style="padding:12px 16px;background:#EFF6FF;border:1px solid #BFDBFE;
-         border-radius:8px;color:#1D4ED8;font-size:14px;margin-bottom:20px"></div>
+         border-radius:8px;color:#1D4ED8;font-size:14px;margin-bottom:12px"></div>
+
+    <div id="usageBox" style="display:none;padding:8px 16px;background:#F8FAFC;border:1px solid #E2E8F0;
+         border-radius:8px;color:#64748B;font-size:12px;margin-bottom:20px">
+    </div>
 
     <div id="actionsContainer"></div>
 
@@ -161,6 +170,16 @@ async function parseEmail() {
 
     parsedActions = data.actions;
     document.getElementById('summaryBox').textContent = data.summary || 'Azioni estratte:';
+
+    // Mostra costo
+    if (data.usage) {
+      const u = data.usage;
+      document.getElementById('usageBox').innerHTML =
+        `Token: <strong>${u.input_tokens}</strong> in + <strong>${u.output_tokens}</strong> out = <strong>${u.total_tokens}</strong> totali` +
+        ` &mdash; Costo: <strong>${u.cost_eur.toFixed(4)} &euro;</strong>`;
+      document.getElementById('usageBox').style.display = 'block';
+    }
+
     renderActions(parsedActions);
 
     document.getElementById('stepInput').style.display = 'none';

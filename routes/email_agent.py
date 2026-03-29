@@ -262,6 +262,17 @@ def api_parse_email():
                 raw = raw[:-3]
             raw = raw.strip()
         parsed = json.loads(raw)
+        # Calcola costo (Haiku 4.5: $0.80/MTok input, $4.00/MTok output)
+        input_tokens  = response.usage.input_tokens
+        output_tokens = response.usage.output_tokens
+        cost_usd = (input_tokens * 0.80 + output_tokens * 4.00) / 1_000_000
+        cost_eur = cost_usd * 0.92  # approssimazione USD→EUR
+        usage_info = {
+            'input_tokens':  input_tokens,
+            'output_tokens': output_tokens,
+            'total_tokens':  input_tokens + output_tokens,
+            'cost_eur':      round(cost_eur, 4),
+        }
     except json.JSONDecodeError:
         return jsonify({'ok': False,
                         'error': f'Risposta Claude non valida: {raw[:500]}'})
@@ -321,6 +332,7 @@ def api_parse_email():
         'ok': True,
         'actions': enriched,
         'summary': parsed.get('summary', ''),
+        'usage': usage_info,
     })
 
 
