@@ -235,7 +235,19 @@ def api_parse_email():
     hotel_list = [h[0] for h in hotels if h[0]]
 
     # Chiama Claude API
-    api_key = os.environ.get('ANTHROPIC_API_KEY') or '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'
+    api_key = os.environ.get('ANTHROPIC_API_KEY')
+    if not api_key:
+        # Prova a leggere dal file env locale
+        _env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'env')
+        if os.path.exists(_env_path):
+            with open(_env_path) as f:
+                for line in f:
+                    if line.startswith('ANTHROPIC_API_KEY='):
+                        api_key = line.split('=', 1)[1].strip()
+                        break
+    if not api_key:
+        return jsonify({'ok': False,
+                        'error': 'ANTHROPIC_API_KEY non configurata'})
 
     client = anthropic.Anthropic(api_key=api_key)
     system = SYSTEM_PROMPT.format(hotel_list='\n'.join(f'- {h}' for h in hotel_list))
