@@ -74,6 +74,22 @@ def create_app():
             if user and user.check_password(password) and user.is_active:
                 session['username'] = user.username or user.email
                 session.permanent = False
+                # Log login
+                from models.models import ModificationLog
+                from datetime import datetime
+                log = ModificationLog(
+                    internal_reference='SYSTEM',
+                    participant_name='',
+                    category='LOGIN',
+                    action=None,
+                    hotel=None,
+                    details=f'Login da {request.remote_addr}',
+                    night_impacts=None,
+                    modified_at=datetime.now(),
+                    modified_by=user.username or user.email,
+                )
+                db.session.add(log)
+                db.session.commit()
                 next_url = request.args.get('next') or url_for('rooming.index')
                 return redirect(next_url)
             flash('Credenziali errate.', 'error')

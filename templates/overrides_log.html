@@ -60,6 +60,43 @@
 </div>
 {% endif %}
 
+<!-- ══ LOGIN LOG ══ -->
+<div style="margin-top:32px;display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+  <div>
+    <h2 style="margin:0;font-size:18px;color:#1F3864">🔑 Login</h2>
+    <div style="font-size:12px;color:#888;margin-top:3px">
+      <strong>{{ login_entries|length }}</strong> accessi registrati
+    </div>
+  </div>
+</div>
+
+{% if login_entries %}
+<div style="overflow-x:auto;border-radius:8px;border:1px solid #E2E8F0">
+  <table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead>
+      <tr style="background:#374151;color:#fff">
+        <th style="padding:10px 14px;text-align:left;font-weight:600">Data / Ora</th>
+        <th style="padding:10px 14px;text-align:left;font-weight:600">Utente</th>
+        <th style="padding:10px 14px;text-align:left;font-weight:600">Dettagli</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in login_entries %}
+      <tr style="border-bottom:1px solid #E2E8F0;{% if loop.index is odd %}background:#F8FAFC{% else %}background:#fff{% endif %}">
+        <td style="padding:9px 14px;white-space:nowrap;color:#64748B;font-size:12px">{{ e.modified_at }}</td>
+        <td style="padding:9px 14px;font-weight:500">{{ e.modified_by }}</td>
+        <td style="padding:9px 14px;color:#64748B;font-size:12px">{{ e.details }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div style="text-align:center;padding:40px;color:#94A3B8">
+  <p style="font-size:14px">Nessun login registrato</p>
+</div>
+{% endif %}
+
 <script>
 async function deleteOverride(ref, field, rowIdx) {
   if (!confirm('Ripristinare il valore originale del batch?')) return;

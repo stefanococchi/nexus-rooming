@@ -3979,8 +3979,8 @@ def api_search_participants_global():
 
 @rooming_bp.route('/overrides-log')
 def overrides_log():
-    """Pagina log di tutti gli override."""
-    from models.models import ManualOverride
+    """Pagina log di tutti gli override + login."""
+    from models.models import ManualOverride, ModificationLog
     ovs = ManualOverride.query.order_by(
         ManualOverride.modified_at.desc()).all()
 
@@ -4004,9 +4004,21 @@ def overrides_log():
         'override':     ov.override_value or '—',
         'modified_at':  ov.modified_at.strftime('%d/%m/%Y %H:%M'),
         'modified_by':  ov.modified_by,
+        'type':         'override',
     } for ov in ovs]
 
+    # Login entries
+    logins = ModificationLog.query.filter_by(category='LOGIN').order_by(
+        ModificationLog.modified_at.desc()).all()
+    login_entries = [{
+        'modified_at':  l.modified_at.strftime('%d/%m/%Y %H:%M'),
+        'modified_by':  l.modified_by,
+        'details':      l.details or '',
+        'type':         'login',
+    } for l in logins]
+
     return render_template('overrides_log.html', log_entries=log_entries,
+                           login_entries=login_entries,
                            total=len(log_entries))
 
 
