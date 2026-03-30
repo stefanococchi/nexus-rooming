@@ -2311,6 +2311,46 @@ def api_activity_remove_participant(ap_id):
     return jsonify({'ok': True})
 
 
+@rooming_bp.route('/api/remove-from-activities', methods=['POST'])
+def api_remove_from_activities():
+    """Rimuove un partecipante da tutte le attività dato l'internal_reference."""
+    from flask import session as flask_session
+    from models.models import ActivityParticipant, ActivityLog
+    data = request.get_json()
+    internal_ref = data.get('internal_reference')
+    reason = data.get('reason', 'NO SHOW')
+    username = flask_session.get('username', 'unknown')
+    if not internal_ref:
+        return jsonify({'ok': False, 'error': 'internal_reference mancante'})
+
+    # Cerca tutti i record rooming con questa internal_reference (multi-batch)
+    all_rows = RoomingList.query.filter_by(internal_reference=internal_ref).all()
+    if not all_rows:
+        return jsonify({'ok': False, 'error': 'Partecipante non trovato'})
+
+    all_ids = [r.id for r in all_rows]
+    name = f'{all_rows[0].first_name or ""} {all_rows[0].last_name or ""}'.strip()
+
+    removed = ActivityParticipant.query.filter(ActivityParticipant.rooming_list_id.in_(all_ids)).all()
+    # Log una volta per attività (evita duplicati da multi-batch)
+    logged_activities = set()
+    for ap in removed:
+        if ap.activity_id not in logged_activities:
+            logged_activities.add(ap.activity_id)
+            act = ap.activity
+            db.session.add(ActivityLog(
+                activity_id=ap.activity_id,
+                activity_name=act.name if act else None,
+                participant_name=name,
+                internal_reference=internal_ref,
+                reason=reason,
+                modified_by=username,
+            ))
+        db.session.delete(ap)
+    db.session.commit()
+    return jsonify({'ok': True, 'removed': len(logged_activities)})
+
+
 @rooming_bp.route('/export-activity/<int:activity_id>')
 def export_activity(activity_id):
     """Excel lista partecipanti di un'attività."""
@@ -3519,7 +3559,7 @@ def api_override():
 def api_no_show():
     """Segna un partecipante come NO SHOW usando il DB id (univoco)."""
     from flask import session as flask_session
-    from models.models import ManualOverride, ModificationLog
+    from models.models import ManualOverride, ModificationLog, ActivityParticipant, ActivityLog
     data     = request.get_json()
     row_id   = data.get('row_id')
     username = flask_session.get('username', 'unknown')
@@ -3598,19 +3638,129 @@ def api_no_show():
     row.change_type    = 'NO SHOW'
     row.change_date    = datetime.now().date()
 
+    # Rimuovi partecipante da tutte le attività
+    # Cerca tutti i record rooming con la stessa internal_reference (multi-batch)
+    all_ids = [r.id for r in RoomingList.query.filter_by(internal_reference=ref).all()] if ref else [row.id]
+    activity_parts = ActivityParticipant.query.filter(ActivityParticipant.rooming_list_id.in_(all_ids)).all()
+
+    # Log una volta per attività (evita duplicati da multi-batch)
+    logged_activities = set()
+    for ap in activity_parts:
+        if ap.activity_id not in logged_activities:
+            logged_activities.add(ap.activity_id)
+            act = ap.activity
+            db.session.add(ActivityLog(
+                activity_id=ap.activity_id,
+                activity_name=act.name if act else None,
+                participant_name=name,
+                internal_reference=ref,
+                reason='NO SHOW',
+                modified_by=username,
+            ))
+        db.session.delete(ap)
+    removed_activities = len(logged_activities)
+
     # Log strutturato
+    details = 'No Show' + (f' (ex hotel: {original_hotel})' if original_hotel else '')
+    if removed_activities:
+        details += f' — rimosso da {removed_activities} attività'
     log = ModificationLog(
         internal_reference=ref, participant_name=name,
         category='NO_SHOW', action='DEL',
         hotel=original_hotel or None,
-        details='No Show' + (f' (ex hotel: {original_hotel})' if original_hotel else ''),
+        details=details,
         night_impacts=_json.dumps(night_impacts) if night_impacts else None,
         modified_at=datetime.now(), modified_by=username,
     )
     db.session.add(log)
 
     db.session.commit()
-    return jsonify({'ok': True, 'name': name})
+    return jsonify({'ok': True, 'name': name, 'removed_activities': removed_activities})
+
+
+@rooming_bp.route('/api/cleanup-noshow-activities', methods=['POST'])
+def api_cleanup_noshow_activities():
+    """Pulizia retroattiva: rimuove dalle attività i partecipanti già in stato NO SHOW o CXL."""
+    from flask import session as flask_session
+    from models.models import ActivityParticipant, ActivityLog
+    username = flask_session.get('username', 'unknown')
+
+    # Ultimo batch
+    batches = get_batches()
+    latest_batch_id = batches[0][0] if batches else None
+
+    # Trova i partecipanti NO SHOW o CXL nell'ultimo batch
+    noshow_rows = RoomingList.query.filter(
+        RoomingList.registration_state.in_(['NO SHOW', 'CXL'])
+    ).all()
+
+    # Mappa ref -> stato (dall'ultimo batch)
+    ref_state = {}
+    ref_name  = {}
+    for r in noshow_rows:
+        if r.internal_reference:
+            if r.import_batch == latest_batch_id:
+                ref_state[r.internal_reference] = r.registration_state
+                ref_name[r.internal_reference]  = f'{r.first_name or ""} {r.last_name or ""}'.strip()
+
+    refs = set(r.internal_reference for r in noshow_rows if r.internal_reference)
+    if not refs:
+        return jsonify({'ok': True, 'removed': 0, 'participants': 0})
+
+    # Cerca TUTTI i rooming_list_id con quelle reference (multi-batch)
+    all_rows = RoomingList.query.filter(RoomingList.internal_reference.in_(refs)).all()
+    all_ids = [r.id for r in all_rows]
+
+    # Mappa rooming_list_id -> internal_reference
+    id_to_ref = {r.id: r.internal_reference for r in all_rows}
+
+    stale = ActivityParticipant.query.filter(
+        ActivityParticipant.rooming_list_id.in_(all_ids)
+    ).all()
+
+    # Log una volta per (ref, activity) — evita duplicati da multi-batch
+    logged = set()
+    affected_refs = set()
+    for ap in stale:
+        ap_ref = id_to_ref.get(ap.rooming_list_id)
+        if ap_ref:
+            affected_refs.add(ap_ref)
+            key = (ap_ref, ap.activity_id)
+            if key not in logged:
+                logged.add(key)
+                act = ap.activity
+                db.session.add(ActivityLog(
+                    activity_id=ap.activity_id,
+                    activity_name=act.name if act else None,
+                    participant_name=ref_name.get(ap_ref, ''),
+                    internal_reference=ap_ref,
+                    reason=ref_state.get(ap_ref, 'CXL'),
+                    modified_by=username,
+                ))
+        db.session.delete(ap)
+    db.session.commit()
+
+    return jsonify({
+        'ok': True,
+        'removed': len(stale),
+        'participants': len(affected_refs)
+    })
+
+
+@rooming_bp.route('/api/activity-log')
+def api_activity_log():
+    """Restituisce il log delle rimozioni dalle attività."""
+    from models.models import ActivityLog
+    logs = ActivityLog.query.order_by(ActivityLog.created_at.desc()).limit(200).all()
+    return jsonify([{
+        'id': l.id,
+        'created_at': l.created_at.strftime('%d/%m/%Y %H:%M') if l.created_at else '',
+        'activity_name': l.activity_name,
+        'participant_name': l.participant_name,
+        'internal_reference': l.internal_reference,
+        'reason': l.reason,
+        'modified_by': l.modified_by,
+    } for l in logs])
 
 
 @rooming_bp.route('/api/modification-log', methods=['POST'])

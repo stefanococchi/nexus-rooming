@@ -12,6 +12,10 @@
         </button>
         <a href="{{ url_for('rooming.export_all_activities') }}" class="btn-primary" style="font-size:13px;padding:6px 14px">⬇ Export tutti i partecipanti</a>
         <a href="{{ url_for('rooming.download_activity_template') }}" class="btn-sm btn-export">⬇ Template import</a>
+        <button onclick="cleanupNoShow(this)"
+                style="background:#DC2626;color:#fff;border:none;padding:6px 14px;border-radius:7px;cursor:pointer;font-size:13px;font-weight:500">
+            🧹 Pulisci No Show
+        </button>
     </div>
 </div>
 
@@ -111,6 +115,17 @@
     </div>
 </div>
 
+<!-- Log rimozioni -->
+<div class="card" style="padding:14px 16px;margin-bottom:24px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <h3 style="margin:0;font-size:14px;color:var(--primary)">Log rimozioni da attività</h3>
+        <button onclick="loadActivityLog()" class="btn-sm" style="font-size:11px">Aggiorna</button>
+    </div>
+    <div id="activityLogContainer" style="font-size:12px;color:var(--text-muted)">
+        <p>Clicca "Aggiorna" per caricare il log.</p>
+    </div>
+</div>
+
 <style>
 .part-table { width:100%;border-collapse:collapse;font-size:12px; }
 .part-table th { background:#F8FAFC;font-weight:600;font-size:11px;color:var(--text-muted);
@@ -125,6 +140,51 @@
 <script>
 let currentActivityId   = null;
 let selectedRoomingId   = null;
+
+// ── Log rimozioni attività ────────────────────────────────────────────────
+async function loadActivityLog() {
+  const container = document.getElementById('activityLogContainer');
+  container.innerHTML = '<p style="color:var(--text-muted)">Caricamento...</p>';
+  const res = await fetch('/api/activity-log');
+  const logs = await res.json();
+  if (!logs.length) {
+    container.innerHTML = '<p style="color:var(--text-muted)">Nessuna rimozione registrata.</p>';
+    return;
+  }
+  const reasonColor = r => r === 'NO SHOW' ? '#DC2626' : '#D97706';
+  let html = '<table class="part-table"><thead><tr>'
+    + '<th>Data</th><th>Partecipante</th><th>Attività</th><th>Motivo</th><th>Utente</th>'
+    + '</tr></thead><tbody>';
+  for (const l of logs) {
+    html += `<tr>
+      <td>${l.created_at}</td>
+      <td>${l.participant_name || '—'}</td>
+      <td>${l.activity_name || '—'}</td>
+      <td style="color:${reasonColor(l.reason)};font-weight:600">${l.reason}</td>
+      <td>${l.modified_by || '—'}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+document.addEventListener('DOMContentLoaded', loadActivityLog);
+
+// ── Pulizia retroattiva No Show ──────────────────────────────────────────
+async function cleanupNoShow(btn) {
+  if (!confirm('Rimuovere dalle attività tutti i partecipanti segnati come NO SHOW o CXL?')) return;
+  btn.disabled = true;
+  btn.textContent = '⏳ Pulizia...';
+  const res = await fetch('/api/cleanup-noshow-activities', { method: 'POST' });
+  const data = await res.json();
+  if (data.ok) {
+    alert(`Pulizia completata: ${data.removed} presenze rimosse da ${data.participants} partecipanti NO SHOW.`);
+    window.location.reload();
+  } else {
+    alert('Errore: ' + (data.error || 'sconosciuto'));
+    btn.disabled = false;
+    btn.textContent = '🧹 Pulisci No Show';
+  }
+}
 
 // ── Edit nome attività ────────────────────────────────────────────────────
 function startEditName(id, el) {

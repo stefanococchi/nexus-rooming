@@ -459,14 +459,24 @@ async function applyNoShow() {
     body: JSON.stringify({ internal_reference: _editRef, field: 'registration_state', value: 'NO SHOW' })
   });
 
+  // Rimuovi da tutte le attività
+  const removeRes = await fetch('/api/remove-from-activities', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ internal_reference: _editRef })
+  });
+  const removeData = await removeRes.json();
+  const removedCount = removeData.removed || 0;
+
   // Log strutturato con hotel, action, night_impacts
+  const logDetails = 'No Show' + (origHotel ? ' (ex hotel: ' + origHotel + ')' : '')
+                   + (removedCount ? ' — rimosso da ' + removedCount + ' attività' : '');
   await fetch('/api/modification-log', {
     method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({
       internal_reference: _editRef, participant_name: pName,
       category: 'NO_SHOW', action: 'DEL',
       hotel: origHotel || null,
-      details: 'No Show' + (origHotel ? ' (ex hotel: ' + origHotel + ')' : ''),
+      details: logDetails,
       night_impacts: nightImpacts
     })
   });

@@ -185,6 +185,21 @@ class ActivityParticipant(db.Model):
     diet            = db.Column(db.Text, nullable=True)
 
 
+# ─── ACTIVITY LOG ─────────────────────────────────────────────────────────────
+
+class ActivityLog(db.Model):
+    __tablename__ = 'activity_log'
+
+    id                 = db.Column(db.Integer, primary_key=True)
+    created_at         = db.Column(db.DateTime, default=datetime.utcnow)
+    activity_id        = db.Column(db.Integer, nullable=True)
+    activity_name      = db.Column(db.String(200), nullable=True)
+    participant_name   = db.Column(db.String(300), nullable=True)
+    internal_reference = db.Column(db.String(50), nullable=True)
+    reason             = db.Column(db.String(50), nullable=False)   # NO SHOW, CXL
+    modified_by        = db.Column(db.String(100), nullable=True)
+
+
 # ─── MANUAL ASSOCIATION ───────────────────────────────────────────────────────
 
 class ManualAssociation(db.Model):
