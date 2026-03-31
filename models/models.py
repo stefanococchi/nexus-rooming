@@ -274,3 +274,29 @@ class ModificationLog(db.Model):
     # JSON: {"night_sat_28mar": -1, "night_mon_30mar": 1, ...}
     modified_at        = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     modified_by        = db.Column(db.String(100), nullable=False)
+
+
+# ─── TABLE ASSIGNMENT (Seating Plan) ────────────────────────────────────────
+
+class TableAssignment(db.Model):
+    """Assegnazione partecipanti ai tavoli per la cena di gala / eventi."""
+    __tablename__ = 'table_assignments'
+
+    id              = db.Column(db.Integer, primary_key=True)
+    rooming_list_id = db.Column(db.Integer, db.ForeignKey('rooming_list.id'), nullable=True, index=True)
+    table_number    = db.Column(db.String(20), nullable=False, index=True)
+
+    # Dati dal file (utili anche se rooming_list_id è NULL = non matchato)
+    last_name       = db.Column(db.String(100), nullable=True)
+    first_name      = db.Column(db.String(100), nullable=True)
+    company         = db.Column(db.String(300), nullable=True)
+    category        = db.Column(db.String(100), nullable=True)
+    title           = db.Column(db.String(20), nullable=True)
+    position        = db.Column(db.String(300), nullable=True)
+    email           = db.Column(db.String(200), nullable=True)
+    phone           = db.Column(db.String(50), nullable=True)
+
+    import_batch    = db.Column(db.String(300), nullable=True, index=True)
+    created_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    modified_at     = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    modified_by     = db.Column(db.String(100), nullable=True)

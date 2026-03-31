@@ -141,6 +141,9 @@ def create_app():
     from routes.email_agent import email_agent_bp
     app.register_blueprint(email_agent_bp)
 
+    from routes.seating import seating_bp
+    app.register_blueprint(seating_bp)
+
     with app.app_context():
         db.create_all()
 

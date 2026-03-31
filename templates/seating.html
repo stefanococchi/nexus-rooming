@@ -1,0 +1,654 @@
+{% extends 'base.html' %}
+{% block title %}Seating Plan — Nexus Rooming{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <a href="{{ url_for('rooming.index') }}" class="back-link">← Home</a>
+    <h1>Seating Plan</h1>
+    <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center">
+        <!-- Upload -->
+        <form method="POST" action="{{ url_for('seating.seating_upload') }}" enctype="multipart/form-data"
+              style="display:flex;gap:6px;align-items:center">
+            <input type="file" name="file" accept=".xlsx,.xls" required style="font-size:12px;max-width:260px">
+            <button type="submit" class="btn-primary" style="font-size:13px;padding:6px 14px">Upload Tavoli</button>
+        </form>
+        {% if total > 0 %}
+        <a href="{{ url_for('seating.seating_export', sort='table') }}" class="btn-sm btn-export" style="font-size:12px">Export per Tavolo</a>
+        <a href="{{ url_for('seating.seating_export', sort='hotel') }}" class="btn-sm btn-export" style="font-size:12px">Export per Hotel</a>
+        <button onclick="openAddManualModal()" style="background:#059669;color:#fff;border:none;padding:6px 14px;border-radius:7px;cursor:pointer;font-size:13px;font-weight:500">+ Aggiungi manuale</button>
+        <button onclick="confirmDeleteAll()" style="background:#DC2626;color:#fff;border:none;padding:6px 14px;border-radius:7px;cursor:pointer;font-size:13px;font-weight:500">Cancella tutto</button>
+        {% endif %}
+    </div>
+</div>
+
+{% if preview %}
+<!-- ═══════════════════════ PREVIEW / REVIEW ═══════════════════════ -->
+<div class="card" style="padding:16px;margin-bottom:20px">
+    <h2 style="font-size:16px;margin-bottom:12px">Review Import</h2>
+
+    <!-- Stats -->
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+        <span style="background:#DCFCE7;color:#166534;padding:4px 12px;border-radius:6px;font-size:13px;font-weight:500">Match esatti: {{ stats.exact }}</span>
+        <span style="background:#DBEAFE;color:#1E40AF;padding:4px 12px;border-radius:6px;font-size:13px;font-weight:500">Match email: {{ stats.email }}</span>
+        <span style="background:#FEF9C3;color:#92400E;padding:4px 12px;border-radius:6px;font-size:13px;font-weight:500">Match parziali: {{ stats.partial }}</span>
+        <span style="background:#FED7AA;color:#9A3412;padding:4px 12px;border-radius:6px;font-size:13px;font-weight:500">Ambigui: {{ stats.ambiguous }}</span>
+        <span style="background:#FEE2E2;color:#991B1B;padding:4px 12px;border-radius:6px;font-size:13px;font-weight:500">Non trovati: {{ stats.not_found }}</span>
+        <span style="background:var(--bg);color:var(--text);padding:4px 12px;border-radius:6px;font-size:13px;font-weight:600">Totale: {{ stats.total }}</span>
+    </div>
+
+    <!-- Filtri -->
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <button class="btn-sm filter-btn active" data-filter="all" onclick="filterPreview('all', this)">Tutti ({{ stats.total }})</button>
+        <button class="btn-sm filter-btn" data-filter="exact" onclick="filterPreview('exact', this)">Esatti ({{ stats.exact }})</button>
+        <button class="btn-sm filter-btn" data-filter="partial" onclick="filterPreview('partial', this)">Parziali ({{ stats.partial + stats.email }})</button>
+        <button class="btn-sm filter-btn" data-filter="ambiguous" onclick="filterPreview('ambiguous', this)">Ambigui ({{ stats.ambiguous }})</button>
+        <button class="btn-sm filter-btn" data-filter="not_found" onclick="filterPreview('not_found', this)">Non trovati ({{ stats.not_found }})</button>
+    </div>
+
+    <!-- Tabella review -->
+    <div style="overflow-x:auto;max-height:60vh;overflow-y:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead style="position:sticky;top:0;background:var(--primary);color:#fff">
+                <tr>
+                    <th style="padding:6px 8px;text-align:left">Stato</th>
+                    <th style="padding:6px 8px;text-align:left">Tavolo</th>
+                    <th style="padding:6px 8px;text-align:left">Nome (file)</th>
+                    <th style="padding:6px 8px;text-align:left">Azienda (file)</th>
+                    <th style="padding:6px 8px;text-align:left">Match DB</th>
+                    <th style="padding:6px 8px;text-align:center">Azione</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for r in results %}
+            <tr class="preview-row" data-match="{{ r.match_type }}" data-idx="{{ loop.index0 }}"
+                style="border-bottom:1px solid var(--border);
+                       {% if r.match_type == 'exact' %}background:#F0FFF4{% elif r.match_type == 'not_found' %}background:#FFF5F5{% elif r.match_type == 'ambiguous' %}background:#FFFBEB{% endif %}">
+                <td style="padding:5px 8px">
+                    {% if r.match_type == 'exact' %}
+                        <span style="color:#16A34A;font-weight:600">OK</span>
+                    {% elif r.match_type == 'email' %}
+                        <span style="color:#2563EB;font-weight:600">Email</span>
+                    {% elif r.match_type == 'partial' %}
+                        <span style="color:#D97706;font-weight:600">Parziale</span>
+                    {% elif r.match_type == 'ambiguous' %}
+                        <span style="color:#EA580C;font-weight:600">Ambiguo</span>
+                    {% elif r.match_type == 'not_found' %}
+                        <span style="color:#DC2626;font-weight:600">Non trovato</span>
+                    {% endif %}
+                </td>
+                <td style="padding:5px 8px;font-weight:600">{{ r.file_data.table_number or '—' }}</td>
+                <td style="padding:5px 8px">{{ r.file_data.title }} {{ r.file_data.first_name }} <strong>{{ r.file_data.last_name }}</strong></td>
+                <td style="padding:5px 8px;color:var(--text-muted)">{{ r.file_data.company }}</td>
+                <td style="padding:5px 8px">
+                    {% if r.candidates|length == 1 %}
+                        <span style="color:var(--primary);font-weight:500">{{ r.candidates[0].name }}</span>
+                        <span style="color:var(--text-muted);font-size:11px"> — {{ r.candidates[0].company }}</span>
+                        {% if r.candidates[0].hotel %}
+                            <span style="color:#0369A1;font-size:11px"> [{{ r.candidates[0].hotel }}]</span>
+                        {% endif %}
+                    {% elif r.candidates|length > 1 %}
+                        <select class="ambiguous-select" data-idx="{{ loop.index0 }}"
+                                style="font-size:11px;padding:2px 6px;border:1px solid var(--warn);border-radius:4px;max-width:300px">
+                            <option value="">— Scegli —</option>
+                            {% for c in r.candidates %}
+                            <option value="{{ c.id }}">{{ c.name }} — {{ c.company }} {% if c.hotel %}[{{ c.hotel }}]{% endif %}</option>
+                            {% endfor %}
+                        </select>
+                    {% else %}
+                        <span style="color:var(--text-muted);font-style:italic">Nessun match</span>
+                    {% endif %}
+                </td>
+                <td style="padding:5px 8px;text-align:center">
+                    <label style="font-size:11px;cursor:pointer">
+                        <input type="checkbox" class="import-check" data-idx="{{ loop.index0 }}" checked> importa
+                    </label>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div style="margin-top:16px;display:flex;gap:10px;justify-content:flex-end">
+        <a href="{{ url_for('seating.seating_page') }}" class="btn-sm">Annulla</a>
+        <button onclick="confirmImport()" class="btn-primary" style="padding:8px 24px;font-size:14px">Conferma Import</button>
+    </div>
+</div>
+
+<script>
+const RESULTS = {{ results | tojson }};
+
+function filterPreview(type, btn) {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.preview-row').forEach(row => {
+        const mt = row.dataset.match;
+        if (type === 'all') row.style.display = '';
+        else if (type === 'partial') row.style.display = (mt === 'partial' || mt === 'email') ? '' : 'none';
+        else row.style.display = mt === type ? '' : 'none';
+    });
+}
+
+function confirmImport() {
+    const assignments = [];
+    document.querySelectorAll('.import-check:checked').forEach(cb => {
+        const idx = parseInt(cb.dataset.idx);
+        const r = RESULTS[idx];
+        const fd = r.file_data;
+
+        let rooming_list_id = null;
+        if (r.candidates.length === 1) {
+            rooming_list_id = r.candidates[0].id;
+        } else if (r.candidates.length > 1) {
+            const sel = document.querySelector(`.ambiguous-select[data-idx="${idx}"]`);
+            if (sel && sel.value) rooming_list_id = parseInt(sel.value);
+        }
+
+        if (!fd.table_number && !fd.last_name) return;
+
+        assignments.push({
+            rooming_list_id,
+            table_number: fd.table_number || '0',
+            last_name: fd.last_name || '',
+            first_name: fd.first_name || '',
+            company: fd.company || '',
+            category: fd.category || '',
+            title: fd.title || '',
+            position: fd.position || '',
+            email: fd.email || '',
+            phone: fd.phone || '',
+        });
+    });
+
+    if (!assignments.length) { alert('Nessuna riga selezionata.'); return; }
+    if (!confirm(`Importare ${assignments.length} assegnazioni tavolo?`)) return;
+
+    fetch('{{ url_for("seating.seating_confirm_import") }}', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({assignments})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) {
+            alert(`Importate ${data.count} assegnazioni.`);
+            location.href = '{{ url_for("seating.seating_page") }}';
+        } else {
+            alert('Errore: ' + (data.error || 'sconosciuto'));
+        }
+    });
+}
+</script>
+
+{% else %}
+<!-- ═══════════════════════ VISTA TAVOLI ═══════════════════════ -->
+{% if total == 0 %}
+<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">
+    <p style="font-size:16px;margin-bottom:8px">Nessun tavolo caricato</p>
+    <p style="font-size:13px">Carica un file Excel con le assegnazioni dei tavoli usando il form qui sopra.</p>
+</div>
+{% else %}
+
+<!-- Toolbar -->
+<div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+    <input type="text" id="searchInput" placeholder="Cerca per nome, azienda, tavolo..."
+           oninput="filterTables(this.value)"
+           style="padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:300px">
+    <button class="btn-sm sort-btn active" data-sort="table" onclick="loadTables('table', this)">Per Tavolo</button>
+    <button class="btn-sm sort-btn" data-sort="hotel" onclick="loadTables('hotel', this)">Per Hotel</button>
+    <span id="totalCount" style="font-size:13px;color:var(--text-muted);margin-left:auto"></span>
+</div>
+
+<div id="tablesContainer">
+    <p style="color:var(--text-muted);font-size:13px">Caricamento...</p>
+</div>
+
+<script>
+let ALL_TABLES = [];
+
+function loadTables(sort, btn) {
+    if (btn) {
+        document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    }
+    fetch(`{{ url_for("seating.api_seating_tables") }}?sort=${sort}`)
+    .then(r => r.json())
+    .then(data => {
+        ALL_TABLES = data.tables;
+        document.getElementById('totalCount').textContent = `${data.total} partecipanti in ${data.tables.length} tavoli`;
+        renderTables(ALL_TABLES);
+    });
+}
+
+function renderTables(tables) {
+    const container = document.getElementById('tablesContainer');
+    if (!tables.length) {
+        container.innerHTML = '<p style="color:var(--text-muted)">Nessun risultato.</p>';
+        return;
+    }
+    let html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(520px,1fr));gap:12px">';
+    tables.forEach(t => {
+        html += `<div class="card" style="padding:14px 16px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                <span style="font-size:15px;font-weight:700;color:var(--primary)">Tavolo ${t.table_number}</span>
+                <span style="font-size:12px;color:var(--text-muted);background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 8px">${t.count} persone</span>
+            </div>
+            <table style="width:100%;border-collapse:collapse;font-size:11px">
+                <thead>
+                    <tr style="background:var(--bg);border-bottom:1px solid var(--border)">
+                        <th style="padding:4px 6px;text-align:left">Nome</th>
+                        <th style="padding:4px 6px;text-align:left">Azienda</th>
+                        <th style="padding:4px 6px;text-align:left">Categoria</th>
+                        <th style="padding:4px 6px;text-align:left">Hotel</th>
+                        <th style="padding:4px 6px;text-align:center">Azioni</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+        t.participants.forEach(p => {
+            const nameDisplay = `${p.title || ''} ${p.first_name || ''} <strong>${p.last_name || ''}</strong>`.trim();
+            const stateClass = (p.registration_state||'').toUpperCase() === 'CXL' ? 'color:#DC2626;text-decoration:line-through;' : '';
+            const editBtn = p.internal_reference
+                ? `<button onclick="openSeatingDetailModal('${p.internal_reference}', '${p.table_number}', ${p.id})" style="background:none;border:none;cursor:pointer;font-size:12px" title="Dettaglio completo DB">&#9998;</button>`
+                : `<button onclick='openSeatingEditModal(${JSON.stringify(p)})' style="background:none;border:none;cursor:pointer;font-size:12px;opacity:.5" title="Solo dati tavolo (no match DB)">&#9998;</button>`;
+            html += `<tr style="border-bottom:1px solid #f0f0f0;${stateClass}">
+                <td style="padding:4px 6px">${nameDisplay}</td>
+                <td style="padding:4px 6px;color:var(--text-muted)">${p.company || ''}</td>
+                <td style="padding:4px 6px"><span style="font-size:10px;background:#EEF2FF;color:#3730A3;padding:1px 6px;border-radius:3px">${p.category || ''}</span></td>
+                <td style="padding:4px 6px;color:#0369A1;font-weight:500;font-size:10px">${p.hotel || '—'}</td>
+                <td style="padding:4px 6px;text-align:center;white-space:nowrap">
+                    ${editBtn}
+                    <button onclick="deleteAssignment(${p.id})" style="background:none;border:none;cursor:pointer;font-size:12px;color:#DC2626" title="Elimina">&times;</button>
+                </td>
+            </tr>`;
+        });
+        html += '</tbody></table></div>';
+    });
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+function filterTables(q) {
+    q = q.toLowerCase().trim();
+    if (!q) { renderTables(ALL_TABLES); return; }
+    const filtered = ALL_TABLES.map(t => {
+        const fp = t.participants.filter(p =>
+            (p.last_name||'').toLowerCase().includes(q) ||
+            (p.first_name||'').toLowerCase().includes(q) ||
+            (p.company||'').toLowerCase().includes(q) ||
+            (p.hotel||'').toLowerCase().includes(q) ||
+            (p.table_number||'').toString().includes(q) ||
+            (p.category||'').toLowerCase().includes(q)
+        );
+        return fp.length ? {...t, participants: fp, count: fp.length} : null;
+    }).filter(Boolean);
+    renderTables(filtered);
+}
+
+// ── Modale locale (solo dati tavolo, per chi non ha match DB) ───
+function openSeatingEditModal(p) {
+    document.getElementById('editId').value = p.id;
+    document.getElementById('editTable').value = p.table_number || '';
+    document.getElementById('editLastName').value = p.last_name || '';
+    document.getElementById('editFirstName').value = p.first_name || '';
+    document.getElementById('editCompany').value = p.company || '';
+    document.getElementById('editCategory').value = p.category || '';
+    document.getElementById('seatingEditModal').style.display = 'flex';
+}
+function closeSeatingEditModal() { document.getElementById('seatingEditModal').style.display = 'none'; }
+
+function saveSeatingEdit() {
+    const data = {
+        id: parseInt(document.getElementById('editId').value),
+        table_number: document.getElementById('editTable').value,
+        last_name: document.getElementById('editLastName').value,
+        first_name: document.getElementById('editFirstName').value,
+        company: document.getElementById('editCompany').value,
+        category: document.getElementById('editCategory').value,
+    };
+    fetch('{{ url_for("seating.api_seating_update") }}', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    }).then(r => r.json()).then(d => {
+        if (d.ok) { closeSeatingEditModal(); loadTables(currentSort()); }
+        else alert('Errore: ' + (d.error || 'sconosciuto'));
+    });
+}
+
+// ── Modale globale DB (con tavolo in evidenza) ──────────────────
+let _seatingAssignmentId = null;
+let _seatingTableNumber = '';
+
+async function openSeatingDetailModal(internalRef, tableNumber, assignmentId) {
+    _seatingAssignmentId = assignmentId;
+    _seatingTableNumber = tableNumber;
+
+    // Usa la modale globale di base.html
+    _editRef = internalRef;
+    document.getElementById('editModal').style.display = 'flex';
+    document.getElementById('editModalBody').innerHTML = '<p style="color:#94A3B8">Caricamento...</p>';
+
+    const [partRes, ovRes] = await Promise.all([
+        fetch('/api/participant/' + encodeURIComponent(internalRef)),
+        fetch('/api/overrides/' + encodeURIComponent(internalRef)),
+    ]);
+    const part   = await partRes.json();
+    const ovData = await ovRes.json();
+
+    if (!part.ok) {
+        document.getElementById('editModalBody').innerHTML = '<p style="color:red">Errore: ' + part.error + '</p>';
+        return;
+    }
+
+    document.getElementById('editModalName').textContent = part.name || internalRef;
+    document.getElementById('editModalRef').textContent  = 'Ref: ' + internalRef;
+
+    const overrides = ovData.overrides || {};
+
+    // ── Banner tavolo in evidenza ───────────────────────────────
+    let html = '';
+    html += `<div style="background:#FEF3C7;border:2px solid #F59E0B;border-radius:9px;padding:14px 18px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between">
+        <div style="display:flex;align-items:center;gap:12px">
+            <span style="font-size:28px;font-weight:800;color:#B45309">T${_seatingTableNumber}</span>
+            <div>
+                <div style="font-size:13px;font-weight:600;color:#92400E">Tavolo ${_seatingTableNumber}</div>
+                <div style="font-size:11px;color:#A16207">Assegnazione seating plan</div>
+            </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+            <label style="font-size:11px;color:#92400E;font-weight:500">Cambia tavolo:</label>
+            <input type="text" id="seatingTableInline" value="${_seatingTableNumber}"
+                   style="width:60px;padding:5px 8px;border:1px solid #F59E0B;border-radius:5px;font-size:14px;font-weight:700;text-align:center;background:#FFFBEB">
+            <button onclick="updateTableFromModal()" style="background:#B45309;color:#fff;border:none;padding:5px 12px;border-radius:5px;cursor:pointer;font-size:11px;font-weight:600">Salva</button>
+        </div>
+    </div>`;
+
+    // ── Notti toggle (copiato da base.html) ─────────────────────
+    const NIGHT_TOGGLE_FIELDS = [
+        'night_no_need','night_sat_28mar','night_sun_29mar','night_mon_30mar','night_tue_31mar',
+        'night_wed_1apr','night_thu_2apr','night_fri_3apr','night_sat_4apr'
+    ];
+    const NIGHT_LABELS = {
+        'night_no_need':'No need','night_sat_28mar':'28/03','night_sun_29mar':'29/03',
+        'night_mon_30mar':'30/03','night_tue_31mar':'31/03','night_wed_1apr':'01/04',
+        'night_thu_2apr':'02/04','night_fri_3apr':'03/04','night_sat_4apr':'04/04',
+    };
+
+    const nightFields   = NIGHT_TOGGLE_FIELDS.filter(f => part.fields[f] !== undefined);
+    const regularFields = Object.keys(part.fields).filter(f => !NIGHT_TOGGLE_FIELDS.includes(f));
+
+    if (nightFields.length) {
+        const anyNightOverride = nightFields.some(f => overrides[f] !== undefined);
+        html += '<div style="background:' + (anyNightOverride ? '#F0FDF4' : '#F8FAFC') + ';border:1px solid ' + (anyNightOverride ? '#86EFAC' : '#E2E8F0') + ';border-radius:7px;padding:12px 14px;margin-bottom:12px">';
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">';
+        html += '<label style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase">Notti</label>';
+        html += '<div style="display:flex;align-items:center;gap:8px">';
+        if (anyNightOverride) html += '<span style="font-size:10px;background:#DCFCE7;color:#166534;padding:1px 6px;border-radius:4px">override</span>';
+        html += '<button type="button" onclick="applyNoShow()" style="background:#DC2626;color:#fff;border:none;padding:5px 14px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600">NO SHOW</button>';
+        html += '</div></div>';
+        html += '<div style="display:flex;flex-wrap:wrap;gap:8px">';
+        nightFields.forEach(f => {
+            const info = part.fields[f];
+            const isActive = !!(info.value && info.value.trim());
+            const hasOv = overrides[f] !== undefined;
+            html += '<div style="display:flex;flex-direction:column;align-items:center;gap:4px">';
+            html += '<span style="font-size:10px;color:#64748B;font-weight:500">' + (NIGHT_LABELS[f] || f) + '</span>';
+            html += '<button type="button" data-field="' + f + '" data-original="' + (info.value || '') + '" data-value="' + (info.value || '') + '" data-active="' + (isActive ? '1' : '0') + '" onclick="toggleNight(this)" style="width:44px;height:28px;border-radius:6px;border:2px solid ' + (isActive ? '#059669' : '#CBD5E1') + ';background:' + (isActive ? '#DCFCE7' : '#F1F5F9') + ';cursor:pointer;font-size:14px;transition:all .15s">' + (isActive ? '✓' : '—') + '</button>';
+            if (hasOv) html += '<span style="font-size:9px;color:#059669">override</span>';
+            html += '</div>';
+        });
+        html += '</div></div>';
+    }
+
+    // ── Hotel in evidenza ───────────────────────────────────────
+    if (part.fields['hotel']) {
+        const hInfo = part.fields['hotel'];
+        const hVal  = hInfo.value || '';
+        const hOv   = overrides['hotel'] !== undefined;
+        html += '<div style="background:' + (hOv ? '#F0FDF4' : '#EFF6FF') + ';border:2px solid ' + (hOv ? '#86EFAC' : '#3B82F6') + ';border-radius:9px;padding:12px 16px;margin-bottom:12px">';
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">';
+        html += '<label style="font-size:12px;font-weight:700;color:#1D4ED8;text-transform:uppercase;letter-spacing:.5px">Hotel</label>';
+        if (hOv) html += '<span style="font-size:10px;background:#DCFCE7;color:#166534;padding:1px 6px;border-radius:4px">override</span>';
+        html += '</div>';
+        html += '<div style="display:flex;gap:6px;align-items:center">';
+        html += '<select data-field="hotel" data-original="' + hVal.replace(/"/g, '&quot;') + '" style="flex:1;padding:7px 10px;border:1px solid #93C5FD;border-radius:6px;font-size:13px;font-weight:500;background:' + (hOv ? '#F0FDF4' : '#fff') + '" onchange="markChanged(this)">';
+        html += '<option value="">— nessuno —</option>';
+        if (hInfo.options) {
+            hInfo.options.forEach(opt => {
+                const sel = opt === hVal ? ' selected' : '';
+                html += '<option value="' + opt.replace(/"/g, '&quot;') + '"' + sel + '>' + opt + '</option>';
+            });
+        }
+        html += '</select>';
+        if (hOv) html += '<button onclick="restoreField(\'hotel\', this)" title="Ripristina" style="background:#FEE2E2;color:#991B1B;border:none;padding:5px 9px;border-radius:5px;cursor:pointer;font-size:12px">&#8629;</button>';
+        html += '</div>';
+        if (hOv && overrides['hotel']) {
+            html += '<div style="font-size:10px;color:#6B7280;margin-top:4px">Originale: ' + (overrides['hotel'].original || '-') + ' · ' + overrides['hotel'].modified_by + ' · ' + overrides['hotel'].modified_at + '</div>';
+        }
+        html += '</div>';
+    }
+
+    // ── Campi regolari ──────────────────────────────────────────
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">';
+    for (const field of regularFields) {
+        if (field === 'hotel') continue;
+        const info = part.fields[field];
+        const hasOverride = overrides[field] !== undefined;
+        const val = info.value || '';
+        const ovInfo = hasOverride ? overrides[field] : null;
+        html += '<div style="background:' + (hasOverride ? '#F0FDF4' : '#F8FAFC') + ';border:1px solid ' + (hasOverride ? '#86EFAC' : '#E2E8F0') + ';border-radius:7px;padding:10px 12px">';
+        html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">';
+        html += '<label style="font-size:11px;font-weight:600;color:#64748B;text-transform:uppercase">' + info.label + '</label>';
+        if (hasOverride) html += '<span style="font-size:10px;background:#DCFCE7;color:#166534;padding:1px 6px;border-radius:4px">override</span>';
+        html += '</div>';
+        html += '<div style="display:flex;gap:6px;align-items:center">';
+        if (info.type === 'select' && info.options) {
+            html += '<select data-field="' + field + '" data-original="' + val.replace(/"/g, '&quot;') + '" style="flex:1;padding:5px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:12px;background:' + (hasOverride ? '#F0FDF4' : '#fff') + '" onchange="markChanged(this)">';
+            html += '<option value="">— nessuno —</option>';
+            info.options.forEach(opt => {
+                const sel = opt === val ? ' selected' : '';
+                html += '<option value="' + opt.replace(/"/g, '&quot;') + '"' + sel + '>' + opt + '</option>';
+            });
+            html += '</select>';
+        } else {
+            html += '<input type="text" value="' + val.replace(/"/g, '&quot;') + '" data-field="' + field + '" data-original="' + val.replace(/"/g, '&quot;') + '" style="flex:1;padding:5px 8px;border:1px solid #CBD5E1;border-radius:5px;font-size:12px;background:' + (hasOverride ? '#F0FDF4' : '#fff') + '" onchange="markChanged(this)">';
+        }
+        if (hasOverride) html += '<button onclick="restoreField(\'' + field + '\', this)" title="Ripristina" style="background:#FEE2E2;color:#991B1B;border:none;padding:4px 7px;border-radius:5px;cursor:pointer;font-size:11px">&#8629;</button>';
+        html += '</div>';
+        if (hasOverride && ovInfo) {
+            html += '<div style="font-size:10px;color:#6B7280;margin-top:3px">Originale: ' + (ovInfo.original || '-') + ' &middot; ' + ovInfo.modified_by + ' &middot; ' + ovInfo.modified_at + '</div>';
+        }
+        html += '</div>';
+    }
+    html += '</div>';
+    document.getElementById('editModalBody').innerHTML = html;
+}
+
+function updateTableFromModal() {
+    const newTable = document.getElementById('seatingTableInline').value;
+    if (!newTable || !_seatingAssignmentId) return;
+    fetch('{{ url_for("seating.api_seating_update") }}', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({id: _seatingAssignmentId, table_number: newTable})
+    }).then(r => r.json()).then(d => {
+        if (d.ok) {
+            _seatingTableNumber = newTable;
+            const banner = document.getElementById('seatingTableInline').closest('div').parentElement;
+            banner.querySelector('span').textContent = 'T' + newTable;
+            banner.querySelector('div div:first-child').textContent = 'Tavolo ' + newTable;
+        }
+        else alert('Errore: ' + (d.error || 'sconosciuto'));
+    });
+}
+
+function deleteAssignment(id) {
+    if (!confirm('Eliminare questa assegnazione?')) return;
+    fetch('{{ url_for("seating.api_seating_delete") }}', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({id})
+    }).then(r => r.json()).then(d => {
+        if (d.ok) loadTables(currentSort());
+        else alert('Errore: ' + (d.error || 'sconosciuto'));
+    });
+}
+
+function confirmDeleteAll() {
+    if (!confirm('Eliminare TUTTE le assegnazioni tavolo? Questa azione non è reversibile.')) return;
+    if (!confirm('Sei sicuro? Verranno cancellati tutti i dati dei tavoli.')) return;
+    fetch('{{ url_for("seating.api_seating_delete_all") }}', {
+        method: 'POST', headers: {'Content-Type': 'application/json'}
+    }).then(r => r.json()).then(d => {
+        if (d.ok) location.reload();
+    });
+}
+
+// ── Add Manual Modal ────────────────────────────────────────────
+let selectedRoomingId = null;
+
+function openAddManualModal() {
+    selectedRoomingId = null;
+    document.getElementById('manualTable').value = '';
+    document.getElementById('manualLastName').value = '';
+    document.getElementById('manualFirstName').value = '';
+    document.getElementById('manualCompany').value = '';
+    document.getElementById('manualCategory').value = '';
+    document.getElementById('manualSearch').value = '';
+    document.getElementById('manualSearchResults').style.display = 'none';
+    document.getElementById('manualSearchResults').innerHTML = '';
+    document.getElementById('manualLinked').style.display = 'none';
+    document.getElementById('addManualModal').style.display = 'flex';
+}
+function closeAddManualModal() { document.getElementById('addManualModal').style.display = 'none'; }
+
+function searchRooming(q) {
+    if (q.length < 2) { document.getElementById('manualSearchResults').style.display = 'none'; return; }
+    fetch('{{ url_for("seating.api_seating_search_rooming") }}', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({q})
+    }).then(r => r.json()).then(data => {
+        const box = document.getElementById('manualSearchResults');
+        if (!data.results.length) { box.innerHTML = '<div style="padding:8px;color:var(--text-muted)">Nessun risultato</div>'; box.style.display = 'block'; return; }
+        box.innerHTML = data.results.map(p =>
+            `<div style="padding:6px 10px;cursor:pointer;border-bottom:1px solid #eee;font-size:12px"
+                  onclick='selectRoomingPerson(${JSON.stringify(p)})'>
+                <strong>${p.name}</strong> — ${p.company} <span style="color:#0369A1;font-size:11px">${p.hotel ? '['+p.hotel+']' : ''}</span>
+            </div>`
+        ).join('');
+        box.style.display = 'block';
+    });
+}
+
+function selectRoomingPerson(p) {
+    selectedRoomingId = p.id;
+    const parts = p.name.split(' ');
+    // Prova a separare nome e cognome
+    document.getElementById('manualLastName').value = parts[parts.length - 1] || '';
+    document.getElementById('manualFirstName').value = parts.slice(0, -1).join(' ') || '';
+    document.getElementById('manualCompany').value = p.company || '';
+    document.getElementById('manualSearchResults').style.display = 'none';
+    document.getElementById('manualLinked').style.display = 'block';
+    document.getElementById('manualLinked').textContent = 'Collegato a: ' + p.name + (p.hotel ? ' [' + p.hotel + ']' : '');
+}
+
+function saveManualAdd() {
+    const data = {
+        rooming_list_id: selectedRoomingId,
+        table_number: document.getElementById('manualTable').value,
+        last_name: document.getElementById('manualLastName').value,
+        first_name: document.getElementById('manualFirstName').value,
+        company: document.getElementById('manualCompany').value,
+        category: document.getElementById('manualCategory').value,
+    };
+    if (!data.table_number) { alert('Inserisci il numero del tavolo.'); return; }
+    fetch('{{ url_for("seating.api_seating_add") }}', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    }).then(r => r.json()).then(d => {
+        if (d.ok) { closeAddManualModal(); loadTables(currentSort()); }
+        else alert('Errore: ' + (d.error || 'sconosciuto'));
+    });
+}
+
+function currentSort() {
+    const active = document.querySelector('.sort-btn.active');
+    return active ? active.dataset.sort : 'table';
+}
+
+// Init
+loadTables('table', document.querySelector('.sort-btn[data-sort="table"]'));
+</script>
+{% endif %}
+{% endif %}
+
+<!-- ══════════ Modale Edit ══════════ -->
+<div id="seatingEditModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:10px;padding:28px 32px;max-width:460px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+        <h3 style="font-size:16px;font-weight:600;color:var(--primary);margin-bottom:14px">Modifica assegnazione</h3>
+        <input type="hidden" id="editId">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+            <label style="font-size:12px;color:var(--text-muted)">Tavolo
+                <input type="text" id="editTable" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:5px;font-size:13px;margin-top:3px;box-sizing:border-box">
+            </label>
+            <label style="font-size:12px;color:var(--text-muted)">Categoria
+                <input type="text" id="editCategory" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:5px;font-size:13px;margin-top:3px;box-sizing:border-box">
+            </label>
+            <label style="font-size:12px;color:var(--text-muted)">Cognome
+                <input type="text" id="editLastName" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:5px;font-size:13px;margin-top:3px;box-sizing:border-box">
+            </label>
+            <label style="font-size:12px;color:var(--text-muted)">Nome
+                <input type="text" id="editFirstName" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:5px;font-size:13px;margin-top:3px;box-sizing:border-box">
+            </label>
+            <label style="font-size:12px;color:var(--text-muted);grid-column:1/-1">Azienda
+                <input type="text" id="editCompany" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:5px;font-size:13px;margin-top:3px;box-sizing:border-box">
+            </label>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+            <button class="btn-sm" onclick="closeSeatingEditModal()">Annulla</button>
+            <button class="btn-primary" onclick="saveSeatingEdit()">Salva</button>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════ Modale Aggiungi Manuale ══════════ -->
+<div id="addManualModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center">
+    <div style="background:#fff;border-radius:10px;padding:28px 32px;max-width:500px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.18)">
+        <h3 style="font-size:16px;font-weight:600;color:var(--primary);margin-bottom:6px">Aggiungi al tavolo</h3>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Cerca un partecipante dal DB oppure inserisci manualmente.</p>
+
+        <input type="text" id="manualSearch" placeholder="Cerca nel DB per cognome, nome, azienda..."
+               oninput="searchRooming(this.value)"
+               style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;margin-bottom:4px;box-sizing:border-box">
+        <div id="manualSearchResults" style="max-height:160px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;display:none;margin-bottom:10px"></div>
+        <div id="manualLinked" style="display:none;background:#EAF3DE;border:1px solid #639922;border-radius:6px;padding:6px 12px;font-size:12px;color:#27500A;margin-bottom:10px"></div>
+
+        <div style="display:grid;grid-template-columns:80px 1fr 1fr;gap:10px;margin-bottom:14px">
+            <label style="font-size:12px;color:var(--text-muted)">Tavolo
+                <input type="text" id="manualTable" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:5px;font-size:13px;margin-top:3px;box-sizing:border-box">
+            </label>
+            <label style="font-size:12px;color:var(--text-muted)">Cognome
+                <input type="text" id="manualLastName" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:5px;font-size:13px;margin-top:3px;box-sizing:border-box">
+            </label>
+            <label style="font-size:12px;color:var(--text-muted)">Nome
+                <input type="text" id="manualFirstName" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:5px;font-size:13px;margin-top:3px;box-sizing:border-box">
+            </label>
+            <label style="font-size:12px;color:var(--text-muted);grid-column:1/3">Azienda
+                <input type="text" id="manualCompany" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:5px;font-size:13px;margin-top:3px;box-sizing:border-box">
+            </label>
+            <label style="font-size:12px;color:var(--text-muted)">Categoria
+                <input type="text" id="manualCategory" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:5px;font-size:13px;margin-top:3px;box-sizing:border-box">
+            </label>
+        </div>
+        <div style="display:flex;gap:10px;justify-content:flex-end">
+            <button class="btn-sm" onclick="closeAddManualModal()">Annulla</button>
+            <button class="btn-primary" onclick="saveManualAdd()">+ Aggiungi</button>
+        </div>
+    </div>
+</div>
+
+<style>
+.filter-btn, .sort-btn { transition: all .15s; }
+.filter-btn.active, .sort-btn.active {
+    background: var(--primary) !important; color: #fff !important;
+    border-color: var(--primary) !important;
+}
+</style>
+{% endblock %}
