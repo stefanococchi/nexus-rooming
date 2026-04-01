@@ -334,6 +334,17 @@ def api_seating_update():
 
     ta.modified_by = session.get('username', 'system')
     ta.modified_at = datetime.utcnow()
+
+    # ── Sync → RoomingList (se collegato) ────────────────────────────────
+    SYNC_FIELDS = {'last_name': 'last_name', 'first_name': 'first_name',
+                   'company': 'company_name'}
+    synced_fields = [f for f in SYNC_FIELDS if f in data]
+    if ta.rooming_list_id and synced_fields:
+        rl = RoomingList.query.get(ta.rooming_list_id)
+        if rl:
+            for ta_field in synced_fields:
+                setattr(rl, SYNC_FIELDS[ta_field], data[ta_field])
+
     db.session.commit()
 
     return jsonify(ok=True)

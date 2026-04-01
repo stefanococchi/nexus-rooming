@@ -3551,6 +3551,15 @@ def api_override():
             row.change_type    = 'MANUAL EDIT'
             row.change_date    = datetime.now().date()
 
+            # ── Sync → TableAssignment (se collegato) ────────────────────
+            SYNC_TO_SEATING = {'last_name': 'last_name', 'first_name': 'first_name',
+                               'company_name': 'company'}
+            if field in SYNC_TO_SEATING:
+                from models.models import TableAssignment
+                linked = TableAssignment.query.filter_by(rooming_list_id=row.id).all()
+                for ta in linked:
+                    setattr(ta, SYNC_TO_SEATING[field], new_val)
+
     db.session.commit()
     return jsonify({'ok': True})
 
