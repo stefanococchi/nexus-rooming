@@ -468,6 +468,7 @@ def seating_export():
             'Email': ta.email or '',
             'Phone': ta.phone or '',
             'Position': ta.position or '',
+            'Diet': rl.diet_restrictions if rl else '',
         })
 
     def sort_key(r):
@@ -486,7 +487,7 @@ def seating_export():
     ws.title = 'Seating Plan'
 
     headers = ['Table', 'Title', 'Last Name', 'First Name', 'Company',
-               'Category', 'Hotel', 'Check', 'Email', 'Phone', 'Position']
+               'Category', 'Hotel', 'Check', 'Email', 'Phone', 'Position', 'Diet']
 
     header_font = Font(bold=True, color='FFFFFF', size=11)
     header_fill = PatternFill(start_color='1F3864', end_color='1F3864', fill_type='solid')
@@ -525,7 +526,7 @@ def seating_export():
         if not_assigned:
             ws2 = wb.create_sheet('Non Importati')
             h2 = ['Title', 'Last Name', 'First Name', 'Company', 'Hotel',
-                   'Check', 'Email', 'Phone']
+                   'Check', 'Email', 'Phone', 'Diet']
             warn_fill = PatternFill(start_color='B45309', end_color='B45309', fill_type='solid')
 
             for col_idx, h in enumerate(h2, 1):
@@ -538,7 +539,8 @@ def seating_export():
             for row_idx, p in enumerate(not_assigned, 2):
                 vals = [p.title or '', p.last_name or '', p.first_name or '',
                         p.company_name or '', p.hotel or '',
-                        'No Table', p.email or '', p.phone or '']
+                        'No Table', p.email or '', p.phone or '',
+                        p.diet_restrictions or '']
                 for col_idx, v in enumerate(vals, 1):
                     cell = ws2.cell(row=row_idx, column=col_idx, value=v)
                     cell.border = thin_border

@@ -99,6 +99,7 @@ EXPORT_COLS = [
     ('visa_passport',        'Passport N.'),
     ('visa_delivery_date',   'Doc Issued'),
     ('visa_expiration_date', 'Doc Expiry'),
+    ('diet_restrictions',    'Diet'),
     ('latest_changes',       'Latest Changes'),
     ('change_type',          'Change Type'),
     ('change_date',          'Change Date'),
